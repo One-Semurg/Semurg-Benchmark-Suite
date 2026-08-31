@@ -5,9 +5,9 @@ key-value, graph, time-series, analytics, search, streaming, relational, object,
 universal (multi-model, one dataset across every model at once). Docker lanes for each incumbent, equal-answer
 gates, belt-proven measurements, scored against **10× / 100× / 1000×** tiers.
 
-> Status: **work in progress.** Lanes and results are landing domain by domain. Numbers below are what has been
-> measured so far; empty cells are on the plan, not hidden. Everything here is designed so **you can run it
-> yourself** and get the same answer.
+**This suite publishes no numbers.** You run it on your own hardware and see your own results, reproducible
+on your machine. Lanes are landing domain by domain (work in progress); what is here is designed so you get
+the same answer we do.
 
 ## The two measurements per task
 
