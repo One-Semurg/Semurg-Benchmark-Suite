@@ -1,0 +1,37 @@
+# --- SECRETS / CREDENTIALS: never commit ---
+*token*
+*secret*
+*.pem
+*.key
+*.lic
+*credential*
+*.credentials
+*_sa.json
+*service_account*
+*api_key*
+*api_keys*
+.env
+.env.*
+.netrc
+.semurg_gh_token
+
+# --- generated data / large artifacts ---
+data/
+*.bin
+*.ndjson
+*.tsv
+*.csv
+corpus*
+bulk*
+*_topk*
+generators/out/
+
+# --- build / runtime ---
+target/
+*.o
+*.so
+__pycache__/
+node_modules/
+.DS_Store
+tmp/
+*.log
