@@ -1,9 +1,9 @@
 # Semurg Benchmark Suite
 
-Reproducible, one-command benchmarks comparing **Semurg** to leading databases across ten data domains —
-key-value, graph, time-series, analytics, search, streaming, relational, object, document, and vector. Docker
-lanes for each incumbent, equal-answer gates, belt-proven measurements, scored against **10× / 100× / 1000×**
-tiers.
+Reproducible, one-command benchmarks comparing **Semurg** to leading databases across eleven data domains —
+key-value, graph, time-series, analytics, search, streaming, relational, object, document, vector, and
+universal (multi-model, one dataset across every model at once). Docker lanes for each incumbent, equal-answer
+gates, belt-proven measurements, scored against **10× / 100× / 1000×** tiers.
 
 > Status: **work in progress.** Lanes and results are landing domain by domain. Numbers below are what has been
 > measured so far; empty cells are on the plan, not hidden. Everything here is designed so **you can run it
@@ -48,6 +48,7 @@ licensed to benchmark.
 | Object | MinIO |
 | Document | MongoDB Community |
 | Vector | Milvus, Qdrant |
+| Universal (multi-model) | SurrealDB, ArangoDB |
 
 ## See where Semurg lands — on your own data
 

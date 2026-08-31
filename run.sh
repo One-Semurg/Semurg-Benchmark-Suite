@@ -10,7 +10,7 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 DOMAIN="${1:-all}"
 
-DOMAINS=(key-value graph time-series analytics search streaming relational object document vector)
+DOMAINS=(key-value graph time-series analytics search streaming relational object document vector universal)
 
 # Canonical domain name -> lane directory under lanes/ (dirs have no hyphens).
 lane_dir() { echo "$here/lanes/$(echo "$1" | tr -d '-')"; }
