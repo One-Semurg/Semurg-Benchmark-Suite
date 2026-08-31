@@ -34,8 +34,9 @@ curl -s -F "data=@$DIR/quotes.csv" "$REST/imp?name=quotes&overwrite=false&forceH
 
 echo "running tick queries..."
 t0=$(date +%s.%N)
-# ASOF JOIN: attach each trade its prevailing quote (the canonical as-of-join tick workload).
-asof=$(q "select sym, sum(px*sz) s, sum(sz) v from (trades asof join quotes) sample by 1h" )
+# ASOF JOIN: attach each trade its prevailing quote PER SYMBOL (the canonical as-of-join tick workload).
+# ON (sym) makes it per-symbol; sym is qualified (it exists in both tables) to avoid ambiguity.
+asof=$(q "select trades.sym sym, sum(trades.px*trades.sz) s, sum(trades.sz) v from trades asof join quotes on (sym) sample by 1h" )
 # VWAP per symbol per hour.
 vwap=$(q "select sym, sum(px*sz)/sum(sz) vwap from trades sample by 1h")
 t1=$(date +%s.%N)

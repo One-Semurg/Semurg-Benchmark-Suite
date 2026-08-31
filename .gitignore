@@ -35,3 +35,6 @@ node_modules/
 .DS_Store
 tmp/
 *.log
+
+# generated per-domain datasets
+.data/

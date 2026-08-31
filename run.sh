@@ -18,11 +18,18 @@ lane_dir() { echo "$here/lanes/$(echo "$1" | tr -d '-')"; }
 run_domain() {
   local d="$1" dir; dir="$(lane_dir "$d")"
   echo "== domain: $d =="
+  # Generate this domain's deterministic dataset (if a generator exists), into a shared per-domain dir
+  # that both the incumbent lane and the Semurg lane read.
+  local data="$here/.data/$(echo "$d" | tr -d '-')"; mkdir -p "$data"
+  case "$d" in
+    search)      BM25_DIR="$data" bash "$here/generators/search_corpus.sh" ;;
+    time-series) TS_DIR="$data"   bash "$here/generators/ticks.sh" ;;
+  esac
   if [ -d "$dir" ]; then
     for lane in "$dir"/*.sh; do
       [ -f "$lane" ] || continue
       echo "  -> incumbent: $(basename "$lane")"
-      bash "$lane" || echo "     lane failed: $(basename "$lane")"
+      BM25_DIR="$data" TS_DIR="$data" bash "$lane" || echo "     lane failed: $(basename "$lane")"
     done
   else
     echo "  (no incumbent lane yet for '$d' - work in progress)"
