@@ -92,6 +92,7 @@ run_all(){
     esac
   done < <(lane_rows | awk -F'\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5}')
   echo
+  board_mismatch=0
   echo "== equal-answer parity gate (reference hash=$ref) =="
   for r in "${results[@]}"; do
     h="$(sed -n 's/.*ANSWER_HASH=\([0-9a-f]*\).*/\1/p' <<<"$r")"
@@ -99,9 +100,10 @@ run_all(){
     if echo "$r" | grep -q 'status=FAILED'; then echo "  $n: FAILED (engine error; not counted)"
     elif [ -z "$h" ]; then echo "  $n: SKIPPED (engine not available)"
     elif [ "$h" = "$ref" ]; then echo "  $n: EQUAL-ANSWER OK"
-    else echo "  $n: MISMATCH ($h != $ref) -- NOT counted"; fi
+    else echo "  $n: MISMATCH ($h != $ref) -- NOT counted"; board_mismatch=1; fi
   done
   echo
+  [ "${board_mismatch:-0}" = 0 ] || { echo; echo "PARITY FAIL: a lane disagreed with the equal-answer reference (MISMATCH above). Exiting non-zero."; arena_cleanup_containers; exit 3; }
   echo "Add the Semurg lane:  semurg-arena install   (then re-run). Your own license-restricted engines"
   echo "run LOCAL-ONLY, shown only to you:  I_HAVE_A_LICENCE=yes semurg-arena run --licensed"
   echo "GRAPH head-to-head (Semurg vs Neo4j vs Kuzu, in-core + out-of-core crown):  semurg-arena run --graph"

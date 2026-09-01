@@ -10,6 +10,7 @@
 #                 memory (disk = truth). THIS survive-vs-DNF is the crown -- reproducible on your box
 #                 because the budget is fixed by the lane, not by how much RAM you happen to have.
 set -uo pipefail
+GRAPH_MISMATCH=0
 HERE="$(cd "$(dirname "$0")"&&pwd)"
 LANES="${GRAPH_LANES_DIR:-$HERE/lanes}"; WORK="${GRAPH_WORK_DIR:-$HERE/workload}"
 SCRATCH_ROOT="${GRAPH_SCRATCH_ROOT:-${TMPDIR:-/tmp}/arena_graph}"
@@ -55,7 +56,7 @@ run_regime(){ # label N DEG HOPS NSEEDS CAP
     local eq note=""
     case "$status" in
       ok)
-        if [ "$v" = "$REF" ]; then eq="OK"; else eq="MISMATCH"; fi
+        if [ "$v" = "$REF" ]; then eq="OK"; else eq="MISMATCH"; GRAPH_MISMATCH=1; fi
         [ "$lane" = semurg_graph ] && { note="peak_rss=${rs}MB"; semq="$qm"; }
         [ -n "$semq" ] && [ "$lane" != semurg_graph ] && [ -n "$qm" ] && [ "$qm" -gt 0 ] 2>/dev/null && \
           note="Semurg query $(awk -v a="$qm" -v b="$semq" 'BEGIN{if(b>0)printf "%.1fx", a/b; else print "-"}') faster"
@@ -87,3 +88,4 @@ echo "engine may beat our raw TEPS (run it yourself). The out-of-core row is the
 echo "memory budget on a bigger-than-budget graph, the engines that keep the graph in RAM DNF while"
 echo "Semurg finishes at flat memory -- the survive-vs-DNF result no competitor can argue away."
 rm -rf "$SCRATCH_ROOT" 2>/dev/null || true
+[ "${GRAPH_MISMATCH:-0}" = 0 ] || { echo; echo "PARITY FAIL: an engine returned a k-hop count that disagrees with the independent reference (MISMATCH above). Exiting non-zero."; exit 3; }

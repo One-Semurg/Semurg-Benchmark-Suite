@@ -32,6 +32,7 @@ drps=$(sed -n 's/.*ROWS_PER_S=\([0-9]*\).*/\1/p' <<<"$dline"); dans=$(sed -n 's/
 dstat=$(sed -n 's/.*STATUS=\([a-z]*\).*/\1/p' <<<"$dline")
 
 echo
+OLAP_MISMATCH=0
 printf "   %-16s %-16s %-13s %s\n" engine rows_per_s equal-answer note
 if [ "$sstat" = ok ]; then
   eq="(reference)"
@@ -41,7 +42,7 @@ else
   printf "   %-16s %-16s %-13s %s\n" "semurg" "–" "DNF" "$(sed -n 's/.*REASON=\(.*\)/\1/p' <<<"$sline")"
 fi
 if [ "$dstat" = ok ]; then
-  if [ -n "$sans" ] && [ "$dans" != "$sans" ]; then deq="MISMATCH"; else deq="OK"; fi
+  if [ -n "$sans" ] && [ "$dans" != "$sans" ]; then deq="MISMATCH"; OLAP_MISMATCH=1; else deq="OK"; fi
   printf "   %-16s %-16s %-13s %s\n" "duckdb" "${drps:-–}" "$deq" "columnar in-core aggregate"
 else
   printf "   %-16s %-16s %-13s %s\n" "duckdb" "–" "${dstat^^}" "$(sed -n 's/.*REASON=\(.*\)/\1/p' <<<"$dline")"
@@ -61,4 +62,5 @@ echo
 echo "Reading it: Semurg's RAW SCAN can lose to a columnar warehouse -- we print that straight. The win"
 echo "is the FOLD: the identical histogram served O(1) off a running monoid (delete the scan, don't try"
 echo "to out-scan the scanner). Both are the SAME bit-exact answer DuckDB returns (equal-answer gated)."
+[ "${OLAP_MISMATCH:-0}" = 0 ] || { echo; echo "PARITY FAIL: an engine disagreed with the equal-answer reference (MISMATCH above). Exiting non-zero so a corrupted answer never passes green."; exit 3; }
 rm -rf "$OLAP_SCRATCH" 2>/dev/null || true
