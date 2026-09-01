@@ -8,9 +8,16 @@
 # incumbents are pulled from their official public images. Each lane binds to 127.0.0.1 and tears down on exit.
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-DOMAIN="${1:-all}"
+DOMAIN="${1:-}"
 
 DOMAINS=(key-value graph time-series analytics search streaming relational object document vector universal)
+
+if [ -z "${DOMAIN:-}" ]; then
+  echo "usage: ./run.sh <domain>    # one domain, e.g. ./run.sh search"
+  echo "       ./run.sh all        # every domain (pulls each incumbent image; can take a while)"
+  echo "domains: ${DOMAINS[*]}"
+  exit 2
+fi
 
 # Canonical domain name -> lane directory under lanes/ (dirs have no hyphens).
 lane_dir() { echo "$here/lanes/$(echo "$1" | tr -d '-')"; }

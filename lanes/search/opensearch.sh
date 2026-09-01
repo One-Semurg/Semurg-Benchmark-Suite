@@ -21,13 +21,14 @@ trap cleanup EXIT
 # force-merged segment.
 docker run -d --name "$CNAME" -p 127.0.0.1:9200:9200 \
   -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true -e plugins.security.disabled=true \
-  -e "OPENSEARCH_JAVA_OPTS=-Xms4g -Xmx4g" "$IMAGE" >/dev/null
+  -e "OPENSEARCH_JAVA_OPTS=-Xms${OS_HEAP:-1g} -Xmx${OS_HEAP:-1g}" "$IMAGE" >/dev/null
 
 echo "waiting for OpenSearch..."
 for i in $(seq 1 60); do
   [ "$(curl -s -o /dev/null -w '%{http_code}' "$OS/_cluster/health" || echo 000)" = "200" ] && break
   sleep 3
 done
+if [ "$(curl -s -o /dev/null -w '%{http_code}' "$OS/_cluster/health" || echo 000)" != "200" ]; then echo "LANE=opensearch STATUS=skip REASON=opensearch-not-ready-in-180s(raise OS_HEAP or free RAM; docker logs )"; exit 0; fi
 
 curl -s -X PUT "$OS/bm" -H 'Content-Type: application/json' -d '{
   "settings": { "number_of_shards": 1, "number_of_replicas": 0, "refresh_interval": "-1",
