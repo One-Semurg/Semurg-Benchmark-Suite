@@ -6,6 +6,9 @@
 set -uo pipefail
 KIT="$(cd "$(dirname "$0")/.."&&pwd)"
 LANES="$KIT/lanes"; WORK="$KIT/workload"; MAN="$KIT/MANIFEST.tsv"
+# Board helpers (docker status/fix, container reaping, timing, answer hashing) live in _common.sh.
+# Sourcing it is REQUIRED: without it `run --all`/`list` call undefined functions. (launch-crit fix)
+[ -f "$LANES/_common.sh" ] && . "$LANES/_common.sh" || { echo "arena: missing lanes/_common.sh (broken checkout)" >&2; exit 2; }
 # ARENA_DATA is what every lane reads (lanes do `DATA="${ARENA_DATA:?}"`). Set + EXPORT the var
 # ITSELF (not a differently-named local), so a bare `semurg-arena run --all` -- with ARENA_DATA unset,
 # the normal non-reader case -- exports a real path, not an empty string. Exporting an empty ARENA_DATA
@@ -143,11 +146,10 @@ install_semurg(){
     sha="$(printf '%s' "$lj" | sed -n 's/.*"sha256"[: ]*"\([^"]*\)".*/\1/p' | head -1)"
     [ -n "$url" ] || url="https://one.semurg.io/dl/semurg-r11-installer.tar.gz"
     curl -fsSL "$url" -o "$t/inst.tar.gz" || { echo "installer download failed ($url) -- check your network, or install from https://github.com/One-Semurg/Semurg-Install"; rm -rf "$t"; exit 2; }
-    if [ -n "$sha" ]; then
-      echo "$sha  $t/inst.tar.gz" | sha256sum -c - >/dev/null 2>&1 \
-        || { echo "installer checksum MISMATCH vs LATEST.json -- aborting (never install an unverified binary)"; rm -rf "$t"; exit 2; }
-      echo "  installer checksum OK"
-    fi
+    [ -n "$sha" ] || { echo "REFUSING to install: LATEST.json carried no sha256 -- will not run an unverified binary. Install from https://github.com/One-Semurg/Semurg-Install instead."; rm -rf "$t"; exit 2; }
+    echo "$sha  $t/inst.tar.gz" | sha256sum -c - >/dev/null 2>&1 \
+      || { echo "installer checksum MISMATCH vs LATEST.json -- aborting (never install an unverified binary)"; rm -rf "$t"; exit 2; }
+    echo "  installer checksum OK"
     tar xzf "$t/inst.tar.gz" -C "$t" || { echo "could not unpack the downloaded installer"; rm -rf "$t"; exit 2; }
   fi
   ( cd "$t"/semurg_installer && exec bash ./semurg-install.sh )

@@ -38,3 +38,6 @@ tmp/
 
 # generated per-domain datasets
 .data/
+
+# MANIFEST.tsv is SOURCE (the lane registry), not a generated dataset -- keep it
+!MANIFEST.tsv
