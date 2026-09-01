@@ -143,7 +143,8 @@ install_semurg(){
     local lj url sha
     curl -fsSL "https://one.semurg.io/dl/LATEST.json" -o "$t/LATEST.json" 2>/dev/null || { echo "could not fetch the release manifest (LATEST.json)"; rm -rf "$t"; exit 2; }
     # verify the ed25519 release signature against a PINNED pubkey BEFORE trusting url/sha (verify-or-REFUSE)
-    command -v openssl >/dev/null 2>&1 || { echo "REFUSING: openssl is required to verify the release signature (apt-get install -y openssl), or install from https://github.com/One-Semurg/Semurg-Install"; rm -rf "$t"; exit 2; }
+    if ! command -v openssl >/dev/null 2>&1; then command -v apt-get >/dev/null 2>&1 && apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq openssl >/dev/null 2>&1 || true; fi
+    command -v openssl >/dev/null 2>&1 || { echo "REFUSING: openssl is required to verify the release signature but could not be installed (apt-get install -y openssl), or install from https://github.com/One-Semurg/Semurg-Install"; rm -rf "$t"; exit 2; }
     printf '%s\n' '-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAGmSXmU++yNyeIS3rHFjAH1ppyErRrkxcovD6ljt1B4w=
 -----END PUBLIC KEY-----' > "$t/semurg_release_pub.pem"
