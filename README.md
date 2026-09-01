@@ -21,6 +21,8 @@ numbers. Losses are printed straight, next to the wins.
 You do not have to trust our numbers. Run them yourself.
 
 ## Quick start
+    # 1. install the free Semurg node (downloads + verifies the published release):
+    ./bin/semurg-arena install     # or: https://github.com/One-Semurg/Semurg-Install
     ./bin/semurg-arena install        # install Semurg R11 (native, on this box)
     ./bin/semurg-arena run --all       # SQL board + open public-license engines, equal-answer
     ./bin/semurg-arena run --graph     # GRAPH head-to-head: Semurg vs Neo4j vs Kuzu (the crown)

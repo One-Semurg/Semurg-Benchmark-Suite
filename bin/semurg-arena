@@ -122,15 +122,34 @@ run_graph(){
 }
 
 install_semurg(){
-  echo "Installing the bundled Semurg R11 release (native, on this box)..."
-  # CHECKSUM-VERIFY the bundled installer BEFORE unpacking -- never install a corrupt/truncated bundle.
-  if [ -f "$KIT/installer/SHA256SUMS" ]; then
-    if ( cd "$KIT/installer" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ); then echo "  bundled installer checksum OK"
-    else echo "REFUSING to install: the bundled installer FAILED its checksum (corrupt/truncated kit)."; \
-         echo "  Re-fetch a clean kit:  curl -fsSL https://data.semurg.io/kit | sh"; exit 2; fi
-  fi
   local t; t="$(mktemp -d)"
-  tar xzf "$KIT/installer/semurg-r11-installer.tar.gz" -C "$t" || { echo "could not unpack the bundled installer (corrupt tarball)"; rm -rf "$t"; exit 2; }
+  if [ -f "$KIT/installer/semurg-r11-installer.tar.gz" ]; then
+    # A full kit bundles the installer: checksum-verify it, then unpack.
+    echo "Installing the bundled Semurg R11 release (native, on this box)..."
+    ( cd "$KIT/installer" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) \
+      || { echo "REFUSING to install: the bundled installer FAILED its checksum (corrupt/truncated kit)."; rm -rf "$t"; exit 2; }
+    echo "  bundled installer checksum OK"
+    tar xzf "$KIT/installer/semurg-r11-installer.tar.gz" -C "$t" \
+      || { echo "could not unpack the bundled installer (corrupt tarball)"; rm -rf "$t"; exit 2; }
+  else
+    # The slim benchmark repo ships no engine: fetch the published installer from one.semurg.io, verify its
+    # sha256 against the authoritative LATEST.json, then run it. This is the same artifact the Semurg-Install
+    # repo uses, and the first node is always free.
+    command -v curl >/dev/null 2>&1 || { echo "install needs curl (apt-get install -y curl)"; rm -rf "$t"; exit 2; }
+    echo "Fetching the published Semurg R11 installer from one.semurg.io (checksum-verified)..."
+    local lj url sha
+    lj="$(curl -fsSL https://one.semurg.io/dl/LATEST.json 2>/dev/null)"
+    url="$(printf '%s' "$lj" | sed -n 's/.*"installer_url"[: ]*"\([^"]*\)".*/\1/p' | head -1)"
+    sha="$(printf '%s' "$lj" | sed -n 's/.*"sha256"[: ]*"\([^"]*\)".*/\1/p' | head -1)"
+    [ -n "$url" ] || url="https://one.semurg.io/dl/semurg-r11-installer.tar.gz"
+    curl -fsSL "$url" -o "$t/inst.tar.gz" || { echo "installer download failed ($url) -- check your network, or install from https://github.com/One-Semurg/Semurg-Install"; rm -rf "$t"; exit 2; }
+    if [ -n "$sha" ]; then
+      echo "$sha  $t/inst.tar.gz" | sha256sum -c - >/dev/null 2>&1 \
+        || { echo "installer checksum MISMATCH vs LATEST.json -- aborting (never install an unverified binary)"; rm -rf "$t"; exit 2; }
+      echo "  installer checksum OK"
+    fi
+    tar xzf "$t/inst.tar.gz" -C "$t" || { echo "could not unpack the downloaded installer"; rm -rf "$t"; exit 2; }
+  fi
   ( cd "$t"/semurg_installer && exec bash ./semurg-install.sh )
 }
 
