@@ -141,7 +141,15 @@ install_semurg(){
     command -v curl >/dev/null 2>&1 || { echo "install needs curl (apt-get install -y curl)"; rm -rf "$t"; exit 2; }
     echo "Fetching the published Semurg R11 installer from one.semurg.io (checksum-verified)..."
     local lj url sha
-    lj="$(curl -fsSL https://one.semurg.io/dl/LATEST.json 2>/dev/null)"
+    curl -fsSL "https://one.semurg.io/dl/LATEST.json" -o "$t/LATEST.json" 2>/dev/null || { echo "could not fetch the release manifest (LATEST.json)"; rm -rf "$t"; exit 2; }
+    # verify the ed25519 release signature against a PINNED pubkey BEFORE trusting url/sha (verify-or-REFUSE)
+    command -v openssl >/dev/null 2>&1 || { echo "REFUSING: openssl is required to verify the release signature (apt-get install -y openssl), or install from https://github.com/One-Semurg/Semurg-Install"; rm -rf "$t"; exit 2; }
+    printf '%s\n' '-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAGmSXmU++yNyeIS3rHFjAH1ppyErRrkxcovD6ljt1B4w=
+-----END PUBLIC KEY-----' > "$t/semurg_release_pub.pem"
+    curl -fsSL "https://one.semurg.io/dl/LATEST.json.sig" -o "$t/LATEST.json.sig" 2>/dev/null || { echo "REFUSING: no release signature at the channel; cannot verify authenticity"; rm -rf "$t"; exit 2; }
+    openssl pkeyutl -verify -pubin -inkey "$t/semurg_release_pub.pem" -rawin -in "$t/LATEST.json" -sigfile "$t/LATEST.json.sig" >/dev/null 2>&1 || { echo "REFUSING: release manifest signature INVALID -- the channel may be compromised"; rm -rf "$t"; exit 2; }
+    lj="$(cat "$t/LATEST.json")"
     url="$(printf '%s' "$lj" | sed -n 's/.*"installer_url"[: ]*"\([^"]*\)".*/\1/p' | head -1)"
     sha="$(printf '%s' "$lj" | sed -n 's/.*"sha256"[: ]*"\([^"]*\)".*/\1/p' | head -1)"
     [ -n "$url" ] || url="https://one.semurg.io/dl/semurg-r11-installer.tar.gz"
