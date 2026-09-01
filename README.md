@@ -60,8 +60,8 @@ gated (identical per-bucket counts). It prints Semurg TWO ways, with the directi
 
 ## What is on the public board
 Open-source / permissively licensed engines only (see MANIFEST.tsv). Wired today: the SQL board
-(sqlite + duckdb embedded, plus the Docker SQL lanes postgres/mysql/mariadb/clickhouse/timescale/
-questdb/mongodb/redis) AND the graph head-to-head (Semurg vs neo4j + kuzu, `run --graph`). Vector /
+(sqlite + duckdb embedded, plus the Docker SQL lane postgres; the mysql/mariadb/clickhouse/timescale/
+questdb/mongodb/redis lanes are scaffolded and listed as *planned* -- contributions welcome) AND the graph head-to-head (Semurg vs neo4j + kuzu, `run --graph`). Vector /
 search / stream category lanes are declared in MANIFEST.tsv and land in a later revision -- honestly
 skipped until then, never faked.
 
