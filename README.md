@@ -39,10 +39,10 @@ licensed to benchmark.
 | Domain | Incumbents (in this suite) |
 |--------|-----------|
 | Key-Value | Redis, RocksDB, Aerospike |
-| Graph | Neo4j, Memgraph |
+| Graph | Neo4j |
 | Time-series | QuestDB, TimescaleDB, InfluxDB |
 | Analytics / OLAP | DuckDB, ClickHouse |
-| Search | Elasticsearch, OpenSearch, Meilisearch |
+| Search | OpenSearch, Meilisearch |
 | Streaming | Kafka, Redpanda, Chronicle Queue |
 | Relational | PostgreSQL, MySQL Community, CockroachDB |
 | Object | MinIO |

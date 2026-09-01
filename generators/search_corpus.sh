@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deterministic search corpus generator (no dependencies beyond awk). Produces, into $BM25_DIR:
-#   bulk.ndjson  -- Elasticsearch _bulk format: {"index":{"_id":N}}\n{"body":"<doc>"}  (one doc per 2 lines)
+#   bulk.ndjson  -- OpenSearch/ES-compatible _bulk format: {"index":{"_id":N}}\n{"body":"<doc>"}  (one doc per 2 lines)
 #   docs.tsv     -- id<TAB>body                (the same corpus, for any lane that wants plain rows)
 #   queries.txt  -- one query per line          (drawn from the frequent tail of the vocab)
 # The corpus is a seeded Zipf mixture, so every machine generates byte-identical data (equal-answer safe).
