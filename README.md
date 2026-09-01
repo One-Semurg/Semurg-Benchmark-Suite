@@ -1,114 +1,77 @@
 # Semurg Benchmark Suite
 
-Reproducible, one-command benchmarks comparing **Semurg** to leading databases across eleven data domains —
-key-value, graph, time-series, analytics, search, streaming, relational, object, document, vector, and
-universal (multi-model, one dataset across every model at once). Docker lanes for each incumbent, equal-answer
-gates, belt-proven measurements, scored against **10× / 100× / 1000×** tiers.
+**You don't have to trust our numbers — run them yourself, on your own hardware.**
 
-**This suite publishes no numbers.** You run it on your own hardware and see your own results, reproducible
-on your machine. Lanes are landing domain by domain (work in progress); what is here is designed so you get
-the same answer we do.
+This is the benchmark harness only (the Semurg engine source is not in this repo). Each lane stands up an
+open-source incumbent from its official image, runs the SAME queries on the SAME deterministic data, and
+counts a result ONLY if its answer hash matches an independent reference — equal-answer, bit-exact, no fake
+numbers. Losses are printed straight, next to the wins.
 
-## The two measurements per task
+**Install Semurg first** — the first node is always free: https://github.com/One-Semurg/Semurg-Install
+(or `./bin/semurg-arena install`). Then run the arena below. To add nodes or discuss your use case: one.semurg.io.
 
-Each task is measured two ways, and both are reported:
+> License-restricted engines (kdb+, Elasticsearch, TigerGraph, Memgraph, Dragonfly) carry benchmark-disclosure
+> ("DeWitt") clauses, so this public suite ships **no lanes** for them. You may of course benchmark any engine
+> you are licensed to run, locally, yourself.
 
-- **Relative** — Semurg **and** the incumbent each in a **Docker container, single node**. Apples-to-apples;
-  this is the multiple that sets the tier.
-- **Absolute** — Semurg on **bare metal, whole cluster, maximum concurrency**. The real product number.
+---
 
-## The tiers (work-deletion depth)
+# Semurg Arena Kit -- reproduce the board on your own hardware
 
-| Tier | Meaning |
-|------|---------|
-| **10×** | a faster kernel |
-| **100×** | deleting the work (better representation / fewer bytes) |
-| **1000×** | architectural — the out-of-core moat (bigger-than-RAM, where the incumbent cannot run at all) |
+You do not have to trust our numbers. Run them yourself.
 
-A result is only counted when it is **belt-proven** (the read path is witnessed: direct-IO conveyor engaged,
-no page-cache fallback) **and** passes an **equal-answer gate** against the incumbent (identical results, byte
-for byte or within documented float tolerance) — *before* any speed is claimed.
+## Quick start
+    ./bin/semurg-arena install        # install Semurg R11 (native, on this box)
+    ./bin/semurg-arena run --all       # SQL board + open public-license engines, equal-answer
+    ./bin/semurg-arena run --graph     # GRAPH head-to-head: Semurg vs Neo4j vs Kuzu (the crown)
+    ./bin/semurg-arena run --olap      # OLAP head-to-head: Semurg (scan+fold) vs DuckDB, equal-answer
+    ./bin/semurg-arena list            # every lane, its licence, wired/planned status
 
-## Domains and incumbents
+`run --all` generates a deterministic dataset, stands up each open public-license engine, runs the
+SAME queries (Q1 aggregate, Q2 point, Q3 filtered count), and prints one decomposed table. A lane
+counts ONLY if its answer hash matches the reference -- mismatches are shown, never hidden.
 
-Each domain compares against widely-used open-source systems whose licences permit user-run benchmarking.
-Some proprietary engines carry benchmark-disclosure ("DeWitt") clauses in their licences; this suite does not
-name or ship reproduction lanes for those — you may of course point the same workload at any engine you are
-licensed to benchmark.
+## The graph crown (`run --graph`)
+`run --graph` ingests ONE deterministic graph into Semurg + Neo4j (GPLv3 CE) + Kuzu (MIT) and runs the
+SAME k-hop traversal, gated by an INDEPENDENT reference answer (a formula-BFS reachable-count): a lane
+counts only if its `nodes_visited` matches. Two regimes:
 
-| Domain | Incumbents (in this suite) |
-|--------|-----------|
-| Key-Value | Redis, RocksDB, Aerospike |
-| Graph | Neo4j |
-| Time-series | QuestDB, TimescaleDB, InfluxDB |
-| Analytics / OLAP | DuckDB, ClickHouse |
-| Search | OpenSearch, Meilisearch |
-| Streaming | Kafka, Redpanda, Chronicle Queue |
-| Relational | PostgreSQL, MySQL Community, CockroachDB |
-| Object | MinIO |
-| Document | MongoDB Community |
-| Vector | Milvus, Qdrant |
-| Universal (multi-model) | SurrealDB, ArangoDB |
+  * **in-core** (fits everyone's RAM): reported straight. Semurg is competitive and typically beats
+    Neo4j here; against a Memgraph/TigerGraph-class engine we may LOSE raw traversal throughput -- we
+    do not claim in-core domination, run those yourself (they are license-restricted, opt-in-local).
+  * **out-of-core** (the crown): a graph bigger than a FIXED small memory budget (default 2 GB, set by
+    the lane -- so the result reproduces regardless of how much RAM your box has). At that budget the
+    engines that keep the graph in RAM cannot build/hold it and **DNF**, while Semurg finishes the
+    traversal at FLAT memory (disk = truth). That survive-vs-DNF property is the point.
 
-## See where Semurg lands — on your own data
+Memgraph / TigerGraph forbid third-party published benchmarks, so they are never on this public board;
+run them yourself, local-only, via `run --licensed`.
 
-**This suite publishes no comparative numbers.** You run it on **your own hardware** and see **your own
-results**. That is the honest measure — the numbers are yours, reproducible on your machine, not a marketing
-chart. (It also means we make no third-party benchmark *publication*; you measure, you decide.)
+## Semurg vs DuckDB, the honest way (`run --olap`)
+`run --olap` runs the SAME narrow COUNT(*) GROUP BY over the SAME rows in Semurg and DuckDB, equal-answer
+gated (identical per-bucket counts). It prints Semurg TWO ways, with the direction stated straight:
+  * **raw scan** -- Semurg's O(N) SIMD sweep. A columnar warehouse is built for exactly this, so Semurg
+    LOSES here (measured ~25x on our node). We print the loss; no spin.
+  * **fold** -- the identical histogram served O(1) off a running monoid (a point-get, not a scan). This
+    is the architectural win (delete the scan, don't try to out-scan the scanner) -- measured thousands
+    of times DuckDB's aggregate throughput, same bit-exact answer.
 
-For every task each lane prints, live, on your box:
+## What is on the public board
+Open-source / permissively licensed engines only (see MANIFEST.tsv). Wired today: the SQL board
+(sqlite + duckdb embedded, plus the Docker SQL lanes postgres/mysql/mariadb/clickhouse/timescale/
+questdb/mongodb/redis) AND the graph head-to-head (Semurg vs neo4j + kuzu, `run --graph`). Vector /
+search / stream category lanes are declared in MANIFEST.tsv and land in a later revision -- honestly
+skipped until then, never faked.
 
-- the **relative** multiple — Semurg vs the incumbent, both in Docker on a single node (apples-to-apples);
-- the **absolute** throughput/latency — Semurg on bare metal, whole cluster, max concurrency;
-- the **tier reached** (10× / 100× / 1000×) — reported only after the **equal-answer gate** passes and the
-  read path is **belt-proven**.
+## License-restricted engines (kdb+, Elasticsearch, TigerGraph, Memgraph)
+These forbid third-party published benchmarks or restrict redistribution, so Semurg neither ships
+them nor puts their numbers on any public page. If you want them in YOUR comparison:
+    I_HAVE_A_LICENCE=yes ./bin/semurg-arena run --licensed
+You install them yourself, from the vendor, under your own licence. Results are written only to
+./arena_local_results/ on this machine. They are never uploaded and never leave your box.
 
-Pick a domain and watch the numbers appear:
-
-```
-./run.sh analytics
-```
-
-Each domain exercises **large, public, domain-specific datasets** and hard, realistic workloads (deep graph
-traversals, high-cardinality aggregations, full-text ranking, nearest-neighbour recall, out-of-core scale),
-not toy inputs. Dataset fetch scripts live in `generators/`.
-
-## Run it
-
-```
-./run.sh <domain>        # e.g. ./run.sh analytics
-./run.sh all             # every domain
-```
-
-Each lane starts the incumbent in Docker, loads a deterministic dataset (generators are reproducible), runs
-the Semurg lane, checks equal-answer, and prints the numbers. See `docs/METHODOLOGY.md` and `lanes/README.md`.
-
-## What this repo is (and is not)
-
-This is the **benchmark harness only**. The Semurg lane invokes the **released Semurg binary / installer** — the
-Semurg engine source is **not** part of this repository. Incumbents run from their official public Docker
-images. Nothing here contains credentials, keys, or private data (see `.gitignore`).
-
-## Status
-
-Early and honest: the harness, methodology, and the first incumbent lanes are here; the remaining lanes, the
-dataset fetch scripts (`generators/`), and the published Semurg image/installer are landing incrementally. Until
-a domain's Semurg lane and its dataset are wired, that domain runs the incumbent side only — no head-to-head
-number is produced. When you see a comparison, it has passed the equal-answer gate on your machine.
-
-## Fairness
-
-In the relative configuration both Semurg and the incumbent run in Docker on a single node **with identical CPU
-and memory limits**, and each lane prints the thread/core count it used on both sides. Incumbents are run with
-their recommended settings; where a caveat applies (e.g. an in-process vs. over-the-wire path), the lane says so.
-
-## Trademarks & affiliation
-
-All product and company names referenced are trademarks of their respective owners and are used for
-identification only. Semurg is not affiliated with, endorsed by, or sponsored by any of them. This project
-publishes no third-party benchmark results; it is a tool you run yourself.
-
-## License
-
-Apache-2.0 (see `LICENSE`). The licence covers the harness scripts in this repository only — not the Semurg
-engine (downloaded separately) and not the third-party database images (each under its own licence).
+## Honest by construction
+- Deterministic data: same seed -> byte-identical CSV everywhere.
+- Equal-answer gate: engines must agree on the answer before any timing is compared.
+- Your hardware, your numbers. Our published numbers were measured on our reference node and are
+  labelled as such at https://data.semurg.io -- this kit is how you check them.

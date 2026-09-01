@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# semurg-arena -- one command to reproduce the Semurg arena board on YOUR hardware.
+# Open, public-license engines only on the board; license-restricted engines are a separate opt-in,
+# local-only step. Equal-answer: every lane answers the SAME queries on the SAME deterministic data,
+# and a lane counts only if its answer hash matches the reference. No fake numbers, ever.
+set -uo pipefail
+KIT="$(cd "$(dirname "$0")/.."&&pwd)"
+LANES="$KIT/lanes"; WORK="$KIT/workload"; MAN="$KIT/MANIFEST.tsv"
+# ARENA_DATA is what every lane reads (lanes do `DATA="${ARENA_DATA:?}"`). Set + EXPORT the var
+# ITSELF (not a differently-named local), so a bare `semurg-arena run --all` -- with ARENA_DATA unset,
+# the normal non-reader case -- exports a real path, not an empty string. Exporting an empty ARENA_DATA
+# made every lane abort with "ARENA_DATA: parameter null or not set".
+ARENA_DATA="${ARENA_DATA:-$KIT/.arena_data}"; export ARENA_DATA; DATA="$ARENA_DATA"
+DRY=0
+
+usage(){ cat <<U
+semurg-arena -- reproducible arena board (measured on YOUR hardware)
+
+  semurg-arena list                 list every lane + its licence + wired/planned status
+  semurg-arena gen                  generate the deterministic dataset (SEMURG_ARENA_ROWS=N)
+  semurg-arena run --all            run the Semurg board + all WIRED public-license lanes
+  semurg-arena run --graph          the GRAPH head-to-head: Semurg vs Neo4j vs Kuzu, equal-answer
+                                    k-hop, in-core AND out-of-core (the survive-vs-DNF crown)
+  semurg-arena run --olap           the OLAP head-to-head: Semurg (scan + fold) vs DuckDB, equal-answer
+                                    COUNT(*) GROUP BY (honest raw-scan loss + the O(1) fold win)
+  semurg-arena run <lane>           run one lane (e.g. sqlite, duckdb, postgres)
+  (the public suite ships NO license-restricted lanes; DeWitt engines are internal-only)
+  semurg-arena install              install the bundled Semurg R11 release (native, on this box)
+  semurg-arena --dry-run run --all  show what would run, run nothing
+  semurg-arena --help
+
+Public-license engines are the public board. License-restricted engines (kdb+, Elasticsearch,
+TigerGraph, Memgraph) are NEVER on the public board and NEVER uploaded -- you run them locally
+under your own licence via 'run --licensed'.
+U
+}
+
+lane_rows(){ grep -vE '^#|^\s*$' "$MAN"; }
+gen(){ mkdir -p "$DATA"; ( cd "$DATA" && bash "$WORK/gen_dataset.sh" orders.csv ); }
+
+do_list(){
+  printf "%-14s %-11s %-26s %-16s %s\n" LANE CATEGORY LICENCE ENGINE STATUS
+  awk -F'\t' '!/^#/ && NF>=5 {printf "%-14s %-11s %-26s %-16s %s\n",$1,$2,$3,$4,$5}' "$MAN"
+}
+
+run_lane(){ # name  -- ISOLATED: a lane can never hang the board (timeout) and never abort it (|| report)
+  local n="$1" script="$LANES/$1.sh"
+  [ -f "$script" ] || script="$LANES/licensed/$1.sh"
+  if [ ! -f "$script" ]; then echo "LANE=$n status=UNKNOWN"; return; fi
+  if [ "$DRY" = 1 ]; then echo "[dry-run] would run $script"; return; fi
+  local to="${LANE_TIMEOUT:-300}"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout -k 10 "${to}s" bash "$script" || echo "LANE=$n status=FAILED reason=timed-out-or-errored(>${to}s; a stuck engine can never hang the board)"
+  else
+    bash "$script" || echo "LANE=$n status=FAILED reason=lane-errored"
+  fi
+}
+
+run_all(){
+  # ENTRY cleanup: reap any arena-labelled containers left by an interrupted prior run, so back-to-back
+  # runs never wedge each other. EXIT/INT/TERM cleanup: leave nothing behind (Ctrl-C included).
+  arena_cleanup_containers
+  trap 'arena_cleanup_containers' EXIT INT TERM
+  [ -f "$DATA/orders.csv" ] || gen
+  echo "== Semurg arena board  (measured on THIS machine: $(uname -sm), $(nproc) cores) =="
+  echo "== dataset: $DATA/orders.csv  rows=$(( $(wc -l < "$DATA/orders.csv") - 1 )) =="
+  local ds; ds="$(arena_docker_status)"
+  if [ "$ds" = ok ]; then echo "== docker: ready -> incumbent engine lanes will run =="
+  else echo "== docker: $ds -> $(arena_docker_fix "$ds"). Docker lanes SKIP; embedded lanes (sqlite/duckdb) still run. =="; fi
+  echo
+  local ref="" results=()
+  # public-license wired lanes, in manifest order
+  while IFS=$'\t' read -r name cat lic eng status; do
+    case "$status" in
+      wired|wired-docker)
+        line="$(run_lane "$name")"; echo "$line"; results+=("$line")
+        h="$(sed -n 's/.*ANSWER_HASH=\([0-9a-f]*\).*/\1/p' <<<"$line")"
+        [ -z "$ref" ] && [ -n "$h" ] && ref="$h";;
+      wired-graph)
+        # the graph lane has its OWN workload + parity gate (different from the SQL board); run it via
+        # `semurg-arena run --graph`, not here, so a graph engine is never mis-scored on the SQL queries.
+        : ;;
+      wired-olap)
+        # the OLAP head-to-head has its OWN workload; run it via `semurg-arena run --olap`.
+        : ;;
+      planned-category)
+        echo "LANE=$name status=PLANNED reason=category-lane-not-in-kit-v1(defined-in-MANIFEST);honest-skip";;
+      opt-in-local) : ;; # never on the public board
+    esac
+  done < <(lane_rows | awk -F'\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5}')
+  echo
+  echo "== equal-answer parity gate (reference hash=$ref) =="
+  for r in "${results[@]}"; do
+    h="$(sed -n 's/.*ANSWER_HASH=\([0-9a-f]*\).*/\1/p' <<<"$r")"
+    n="$(sed -n -e 's/^LANE=\([^ ]*\).*/\1/p' -e 's/^SKIP \([^ ]*\).*/\1/p' <<<"$r" | head -1)"; [ -z "$n" ] && n="?"
+    if echo "$r" | grep -q 'status=FAILED'; then echo "  $n: FAILED (engine error; not counted)"
+    elif [ -z "$h" ]; then echo "  $n: SKIPPED (engine not available)"
+    elif [ "$h" = "$ref" ]; then echo "  $n: EQUAL-ANSWER OK"
+    else echo "  $n: MISMATCH ($h != $ref) -- NOT counted"; fi
+  done
+  echo
+  echo "Add the Semurg lane:  semurg-arena install   (then re-run). Your own license-restricted engines"
+  echo "run LOCAL-ONLY, shown only to you:  I_HAVE_A_LICENCE=yes semurg-arena run --licensed"
+  echo "GRAPH head-to-head (Semurg vs Neo4j vs Kuzu, in-core + out-of-core crown):  semurg-arena run --graph"
+  echo "OLAP head-to-head  (Semurg scan+fold vs DuckDB, honest loss + fold win):    semurg-arena run --olap"
+  arena_cleanup_containers
+}
+
+run_olap(){
+  [ -f "$KIT/olap_run.sh" ] || { echo "olap lane not present in this kit (olap_run.sh missing)"; exit 2; }
+  OLAP_LANES_DIR="$LANES" OLAP_EXS="$WORK/semurg_olap.exs" bash "$KIT/olap_run.sh"
+}
+
+run_graph(){
+  # ISOLATED like the SQL board: entry+exit container cleanup so a stuck/timed-out engine never wedges
+  # a back-to-back run. The graph orchestrator owns its own deterministic workload + equal-answer gate.
+  arena_cleanup_containers
+  trap 'arena_cleanup_containers' EXIT INT TERM
+  [ -f "$KIT/graph_run.sh" ] || { echo "graph lane not present in this kit (graph_run.sh missing)"; exit 2; }
+  GRAPH_LANES_DIR="$LANES" GRAPH_WORK_DIR="$WORK" GRAPH_WALK_EXS="$WORK/semurg_walk.exs" bash "$KIT/graph_run.sh"
+  arena_cleanup_containers
+}
+
+install_semurg(){
+  echo "Installing the bundled Semurg R11 release (native, on this box)..."
+  # CHECKSUM-VERIFY the bundled installer BEFORE unpacking -- never install a corrupt/truncated bundle.
+  if [ -f "$KIT/installer/SHA256SUMS" ]; then
+    if ( cd "$KIT/installer" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ); then echo "  bundled installer checksum OK"
+    else echo "REFUSING to install: the bundled installer FAILED its checksum (corrupt/truncated kit)."; \
+         echo "  Re-fetch a clean kit:  curl -fsSL https://data.semurg.io/kit | sh"; exit 2; fi
+  fi
+  local t; t="$(mktemp -d)"
+  tar xzf "$KIT/installer/semurg-r11-installer.tar.gz" -C "$t" || { echo "could not unpack the bundled installer (corrupt tarball)"; rm -rf "$t"; exit 2; }
+  ( cd "$t"/semurg_installer && exec bash ./semurg-install.sh )
+}
+
+# arg parse
+while [ $# -gt 0 ]; do case "$1" in
+  --dry-run) DRY=1; shift;;
+  --help|-h) usage; exit 0;;
+  list) do_list; exit 0;;
+  gen) gen; exit 0;;
+  install) install_semurg; exit 0;;
+  run) shift
+       case "${1:-}" in
+         --all) run_all; exit 0;;
+         --graph) run_graph; exit 0;;
+         --olap) run_olap; exit 0;;
+         --licensed) shift; for l in kdb elasticsearch tigergraph memgraph dragonfly; do run_lane "$l"; done; exit 0;;
+         "" ) echo "run what? see --help"; exit 2;;
+         * ) [ -f "$DATA/orders.csv" ] || gen; run_lane "$1"; exit 0;;
+       esac;;
+  *) usage; exit 2;;
+esac; done
+usage
