@@ -73,7 +73,7 @@ run_all(){
   echo
   local ref="" results=()
   # public-license wired lanes, in manifest order
-  while IFS=$'\t' read -r name cat lic eng status; do
+  while IFS=$'\t' read -r name cat lic eng status <&9; do
     case "$status" in
       wired|wired-docker)
         line="$(run_lane "$name")"; echo "$line"; results+=("$line")
@@ -90,7 +90,7 @@ run_all(){
         echo "LANE=$name status=PLANNED reason=category-lane-not-in-kit-v1(defined-in-MANIFEST);honest-skip";;
       opt-in-local) : ;; # never on the public board
     esac
-  done < <(lane_rows | awk -F'\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5}')
+  done 9< <(lane_rows | awk -F'\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5}')
   echo
   board_mismatch=0
   echo "== equal-answer parity gate (reference hash=$ref) =="
