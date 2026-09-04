@@ -59,11 +59,13 @@ gated (identical per-bucket counts). It prints Semurg TWO ways, with the directi
     of times DuckDB's aggregate throughput, same bit-exact answer.
 
 ## What is on the public board
-Open-source / permissively licensed engines only (see MANIFEST.tsv). Wired today: the SQL board
-(sqlite + duckdb embedded, plus the Docker SQL lane postgres; the mysql/mariadb/clickhouse/timescale/
-questdb/mongodb/redis lanes are scaffolded and listed as *planned* -- contributions welcome) AND the graph head-to-head (Semurg vs neo4j + kuzu, `run --graph`). Vector /
-search / stream category lanes are declared in MANIFEST.tsv and land in a later revision -- honestly
-skipped until then, never faked.
+Open-source / permissively licensed engines only (see MANIFEST.tsv). Wired today and running
+equal-answer via `run --all`: the SQL board -- sqlite + duckdb (embedded) and the Docker lanes
+postgres, mysql, mariadb, clickhouse, timescale and questdb (all eight agree on the answer hash).
+Plus the graph head-to-head (Semurg vs neo4j + kuzu, `run --graph`) and the OLAP head-to-head
+(Semurg scan+fold vs duckdb, `run --olap`). The mongodb / redis / vector / search / stream / object
+category lanes are declared in MANIFEST.tsv and land in later revisions -- honestly skipped until
+then (`list` shows each as `planned-category`), never faked.
 
 ## License-restricted engines (kdb+, Elasticsearch, TigerGraph, Memgraph)
 These forbid third-party published benchmarks or restrict redistribution, so Semurg neither ships
