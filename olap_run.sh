@@ -91,5 +91,13 @@ echo "Reading it: Semurg's RAW SCAN can lose to a columnar warehouse -- we print
 echo "is the FOLD: the identical histogram served O(1) off a running monoid (delete the scan, don't try"
 echo "to out-scan the scanner). Both DuckDB and ClickHouse return the SAME bit-exact per-bucket counts"
 echo "Semurg does (equal-answer gated); a ClickHouse SKIP just means docker/the image was unavailable."
+echo
+echo "Why the raw scan loses (byte-bound, NOT a concurrency throttle): Semurg's histogram already fans"
+echo "across ALL cores (thread::scope, ncores == logical_cores == the same nproc thread-parity DuckDB and"
+echo "ClickHouse run at), at ~70-80% of this node's DDR5 ceiling. The loss is STRUCTURAL: a row-major 64B"
+echo "container sweep pulls a full 64B cache line per row where a columnar warehouse reads a dense <=8B"
+echo "column -- an ~8x byte-traffic penalty no amount of concurrency (even both nodes) removes. The real"
+echo "fix is the column-native dense-8B data-column (reads 8B/row), tracked separately; the FOLD above is"
+echo "the architectural answer for the shipped aggregate."
 [ "${OLAP_MISMATCH:-0}" = 0 ] || { echo; echo "PARITY FAIL: an engine disagreed with the equal-answer reference (MISMATCH above). Exiting non-zero so a corrupted answer never passes green."; exit 3; }
 rm -rf "$OLAP_SCRATCH" 2>/dev/null || true
