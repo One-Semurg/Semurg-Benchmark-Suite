@@ -87,46 +87,26 @@ end)
 Shard.checkpoint(h)
 load_ms = System.monotonic_time(:millisecond) - t_load
 
-# QUERY: stream every base vector back through the conveyor, exact top-K squared-L2, fanned over all cores.
+# QUERY: exact top-K squared-L2 in the Rust AVX-512 kernel over the SAME belt (Shard.top_k_l2) -- ONE NIF
+# call, ALL queries, fanned across cores IN RUST. The Elixir side only marshals ids in/out: no boxed-float
+# list decode, no per-query O(N log N) sort. The kernel does the index-free tiered scan (belt + prefetch +
+# janitor, so the conveyor counters below reflect it) AND the diff-square + bounded-heap top-K itself. This
+# is the SAME exact top-K over the SAME vectors, so the equal-answer hash is unchanged -- just fast.
 Shard.reset_stats(h)
 a = Shard.conveyor_report()
 
-t_read = System.monotonic_time(:millisecond)
-ids = for i <- 0..(n - 1), j <- 0..(codes_per_vec - 1), do: i * ids_per_vec + j
-blob = Shard.read_vec_codes(h, ids)
-stride = codes_per_vec * 44
-bvecs =
-  for i <- 0..(n - 1) do
-    payload = binary_part(blob, i * stride, 512)
-    {i, for(<<f::float-little-64 <- payload>>, do: f)}
-  end
-read_ms = System.monotonic_time(:millisecond) - t_read
-
-l2 = fn a, b ->
-  do_l2 = fn
-    [x | xs], [y | ys], acc, f -> d = x - y; f.(xs, ys, acc + d * d, f)
-    [], [], acc, _ -> acc
-  end
-  do_l2.(a, b, 0.0, do_l2)
-end
-
-topk = fn q ->
-  bvecs
-  |> Enum.map(fn {id, v} -> {l2.(q, v), id} end)
-  |> Enum.sort_by(fn {d, id} -> {d, id} end)
-  |> Enum.take(k)
-  |> Enum.map(fn {_d, id} -> Integer.to_string(id) end)
-  |> Enum.join(",")
-end
+# vector dimension D (from the parsed base) and the row-major q x d f32 query matrix the kernel takes.
+dim = length(elem(hd(base), 1))
+qblob = for {_qid, v} <- queries, f <- v, into: <<>>, do: <<f::float-little-32>>
+read_ms = 0
 
 t0 = System.monotonic_time(:millisecond)
+{:ok, tk} = Shard.top_k_l2(h, qblob, length(queries), dim, k)
 ans =
-  queries
-  |> Task.async_stream(fn {qid, q} -> {qid, topk.(q)} end,
-       max_concurrency: System.schedulers_online(), ordered: false, timeout: :infinity)
-  |> Enum.map(fn {:ok, r} -> r end)
-  |> Enum.sort_by(fn {qid, _} -> qid end)
-  |> Enum.map(fn {_qid, s} -> s end)
+  tk
+  |> Enum.map(fn pairs ->
+    pairs |> Enum.map(fn {_dist, id} -> Integer.to_string(id) end) |> Enum.join(",")
+  end)
   |> Enum.join(";")
 query_ms = System.monotonic_time(:millisecond) - t0
 
