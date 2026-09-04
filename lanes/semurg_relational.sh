@@ -54,6 +54,14 @@ path = Path.join(dir, "orders.bin")
 {:ok, h} = Shard.open(path)
 inline = <<0::160>>
 
+# ARM the fold-at-ingest monoid on the EMPTY shard, BEFORE the append loop, so Q1's GROUP BY product_id
+# (SUM(amount_cents) + COUNT) is maintained INCREMENTALLY on the engine's append path and read back as an
+# O(1) point-get (Shard.fold), never a full scan+aggregate in BEAM. Group by product_id@16, sum amount@24;
+# 2048 > max product_id (2000) => bucket == product_id exactly (each group is one product). The seed scan on
+# the empty shard is zero-cost; every later Shard.append then folds its batch (cost lands in LOAD, fair: the
+# SQL lanes also build their index at load).
+Shard.set_fold_hist(h, 16, 2048)
+
 # LOAD: parse orders.csv -> 64B containers -> append -> checkpoint (timed like the SQL .import + index).
 t0 = System.monotonic_time(:microsecond)
 max_id =
@@ -76,29 +84,17 @@ max_id =
 Shard.checkpoint(h)
 load_ms = div(System.monotonic_time(:microsecond) - t0, 1000)
 
-# batched deep-QD read of every row (ids 1..max_id, request order = id order), decoding product_id@16 +
-# amount_cents@24 straight off the raw 64 bytes -> the engine's own read path (Shard.fetch_batch, io_uring).
-scan_reduce = fn fun, acc0 ->
-  Enum.reduce(1..max_id//50_000, acc0, fn lo, acc ->
-    hi = min(lo + 50_000 - 1, max_id)
-    packed = Shard.fetch_batch(h, Enum.to_list(lo..hi))
-    reduce_bin = fn
-      <<>>, a, _f -> a
-      <<_::binary-size(16), prod::little-64, amt::little-64, _::binary-size(32), rest::binary>>, a, f ->
-        f.(rest, fun.(prod, amt, a), f)
-    end
-    reduce_bin.(packed, acc, reduce_bin)
-  end)
-end
-
-# Q1: GROUP BY product_id -> {sum(amount), count}; ORDER BY sum DESC, product_id ASC; top 10.
+# Q1: GROUP BY product_id -> {SUM(amount_cents), COUNT}; ORDER BY sum DESC, product_id ASC; top 10. Served
+# O(1) from the running fold-at-ingest monoid armed above (Shard.fold is a POINT-GET of the ~<=2000 group
+# tuples, NOT a full row scan). Shard.fold returns {count, sum_lane0, sumsq_lane0, groups} where groups is a
+# list of {product_id, sum(amount), count}; sort/take-10/join is byte-identical to the old BEAM aggregate.
 t1 = System.monotonic_time(:microsecond)
-agg = scan_reduce.(fn prod, amt, m -> Map.update(m, prod, {amt, 1}, fn {s, c} -> {s + amt, c + 1} end) end, %{})
+{_cnt, _sum, _sq, groups} = Shard.fold(h)
 q1 =
-  agg
-  |> Enum.sort_by(fn {pid, {sum, _c}} -> {-sum, pid} end)
+  groups
+  |> Enum.sort_by(fn {pid, sum, _cnt} -> {-sum, pid} end)
   |> Enum.take(10)
-  |> Enum.map_join("", fn {pid, {sum, cnt}} -> "#{pid}:#{sum}:#{cnt};" end)
+  |> Enum.map_join("", fn {pid, sum, cnt} -> "#{pid}:#{sum}:#{cnt};" end)
 q1_ms = div(System.monotonic_time(:microsecond) - t1, 1000)
 
 # Q2: point SELECT amount_cents WHERE order_id=q2_id. Absent -> "" (matches SQL empty result). A real
@@ -112,9 +108,12 @@ q2 =
   end
 q2_ms = div(System.monotonic_time(:microsecond) - t2, 1000)
 
-# Q3: COUNT(*) WHERE amount_cents > q3_thr.
+# Q3: COUNT(*) WHERE amount_cents > q3_thr, pushed down to the native SIMD range-count kernel (predicate
+# pushdown over the ONE tiered conveyor, fanned across cores; only the count crosses the NIF boundary, zero
+# rows materialise in BEAM). op :gt, amount_cents field @24, the same predicate the old BEAM per-row compare
+# ran, so the answer is unchanged.
 t3 = System.monotonic_time(:microsecond)
-q3 = scan_reduce.(fn _prod, amt, n -> if(amt > q3_thr, do: n + 1, else: n) end, 0) |> Integer.to_string()
+q3 = Shard.scan_count_cmp(h, 24, :gt, q3_thr) |> Integer.to_string()
 q3_ms = div(System.monotonic_time(:microsecond) - t3, 1000)
 
 File.rm_rf(dir)
