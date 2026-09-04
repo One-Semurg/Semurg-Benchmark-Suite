@@ -124,12 +124,17 @@ q3reg = geti.("UNIV_Q3REG", 0)
 {:ok, h} = Shard.open(store)
 :ok = Shard.set_fold_hist(h, 16, cats)
 
-# the friend relation: dst id per edge (the graph model), loaded once.
-dsts =
+# the friend relation: dst id per edge (the graph model), loaded once and PRE-PACKED as a u64-LE binary
+# (only tokens cross the boundary, HARD RULE 4). Packing happens ONCE here, OUTSIDE the timed 3-cycle
+# loop, so Q3 in each cycle is a single native gather-fold crossing with no per-cycle BEAM pack cost.
+dsts_bin =
   edges
   |> File.stream!([], :line)
   |> Stream.drop(1)
-  |> Enum.map(fn l -> [_src, dst] = l |> String.trim() |> String.split(","); String.to_integer(dst) end)
+  |> Enum.reduce(<<>>, fn l, acc ->
+    [_src, dst] = l |> String.trim() |> String.split(",")
+    <<acc::binary, String.to_integer(dst)::unsigned-little-64>>
+  end)
 
 hash = fn s -> :crypto.hash(:sha256, s) |> Base.encode16(case: :lower) |> binary_part(0, 32) end
 snap = fn -> try do Shard.conveyor_report() rescue _ -> %{} catch _, _ -> %{} end end
@@ -144,18 +149,15 @@ q1 = fn ->
     _ -> -1
   end
 end
-# Q3: GRAPH+DOCUMENT join -> for each friend edge, fetch the target and read region (little-32 @40),
-# count where region == q3reg. This walks the relation AND reads the linked document field.
-q3 = fn ->
-  Enum.reduce(dsts, 0, fn dst, acc ->
-    case Shard.fetch(h, dst) do
-      c when is_binary(c) and byte_size(c) >= 44 ->
-        <<_::binary-size(40), r::little-32, _::binary>> = c
-        if r == q3reg, do: acc + 1, else: acc
-      _ -> acc
-    end
-  end)
-end
+# Q3: GRAPH+DOCUMENT join -> COUNT friend edges whose TARGET person is in region q3reg, pushed to the
+# native gather-fold kernel (Shard.join_count_cmp): walk the relation (the packed dst targets) + read
+# each linked person's region field + count region == q3reg, ALL in ONE crossing through the deep-QD
+# coalesced conveyor - only the count crosses back, ZERO containers materialise in BEAM. This replaces
+# the per-edge Shard.fetch reduce (50000 QD1 crossings + 50000 binary allocs in interpreted Elixir).
+# region is stored as the u64 attr @24 (Container.node(id, category, region, ...)) AND as the u32 inline
+# @40; @24 == @40 (same region value, region < R), so the count is BIT-IDENTICAL to the old @40 read and
+# the equal-answer hash is unchanged. 4 = EQ (0=GT 1=GE 2=LT 3=LE 4=EQ 5=NE).
+q3 = fn -> Shard.join_count_cmp(h, dsts_bin, 24, :eq, q3reg) end
 
 Shard.reset_stats(h)
 Enum.each(1..3, fn cyc ->
