@@ -41,3 +41,6 @@ tmp/
 
 # MANIFEST.tsv is SOURCE (the lane registry), not a generated dataset -- keep it
 !MANIFEST.tsv
+
+# large incumbent binary -- auto-downloaded by lanes/kuzu.sh, never committed
+/bin/kuzu

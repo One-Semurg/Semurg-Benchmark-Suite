@@ -185,7 +185,7 @@ OUT="$( \
   KV_SHARDS="${KV_SHARDS:-}" KV_STRIPE_ROOTS="$STRIPES" KV_DIR="$D/kv" \
   SEMURG_DATA_DIR="$D/data" SEMURG_STRIPE_ROOTS="$STRIPES" \
   SECRET_KEY_BASE="$SKB" RELEASE_TMP="$D/tmp" PORT="${KV_PORT:-4991}" SEMURG_BIND=127.0.0.1 \
-  timeout "${KV_TIMEOUT:-600}" "$REL" eval "$KV_EXS" 2>/dev/null )"
+  timeout "${KV_TIMEOUT:-600}" "$REL" eval "$KV_EXS" </dev/null 2>/dev/null )"
 
 LINE="$(printf '%s\n' "$OUT" | grep -m1 '^SEMURG_KV ')"
 if [ -z "$LINE" ]; then

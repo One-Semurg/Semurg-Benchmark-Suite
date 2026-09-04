@@ -15,7 +15,10 @@ HERE="$(cd "$(dirname "$0")"&&pwd)"
 LANES="${GRAPH_LANES_DIR:-$HERE/lanes}"; WORK="${GRAPH_WORK_DIR:-$HERE/workload}"
 SCRATCH_ROOT="${GRAPH_SCRATCH_ROOT:-${TMPDIR:-/tmp}/arena_graph}"
 export GRAPH_WALK_EXS="${GRAPH_WALK_EXS:-$WORK/semurg_walk.exs}"
-TO="${LANE_TIMEOUT:-600}"
+# Per-lane outer timeout. Kept at/above the Neo4j lane's internal budget (NEO4J_LANE_BUDGET=840s) so a
+# slow Neo4j (JVM boot + APOC + big load under a memory cap) self-emits a clean line before the outer
+# kill -- never a bare "no-LANE-line" DNF.
+TO="${LANE_TIMEOUT:-900}"
 . "$LANES/_common.sh"
 
 cap_mb(){ case "$1" in 0|"") echo 0;; *[Gg]) echo $(( ${1%[Gg]} * 1024 ));; *[Mm]) echo ${1%[Mm]};; *) echo $(( $1 / 1048576 ));; esac; }

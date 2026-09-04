@@ -7,8 +7,8 @@ mariadb	relational	public_ok:GPLv2	docker:mariadb:11	wired-docker
 clickhouse	olap	public_ok:Apache-2.0	docker:clickhouse/clickhouse-server	wired-docker
 timescale	timeseries	public_ok:Apache-2.0/TSL-core-excluded	docker:timescale/timescaledb:latest-pg16	wired-docker
 questdb	timeseries	public_ok:Apache-2.0	docker:questdb/questdb	wired-docker
-mongodb	document	public_ok:SSPL(self-host-ok)	docker:mongo:7	planned-category
-redis	kv	public_ok:BSD-3(redis<7.4)/RSAL	docker:redis:7.2	planned-category
+mongodb	document	public_ok:SSPL(self-host-ok)	docker:mongo:7	wired-docker
+redis	kv	public_ok:BSD-3(redis<7.4)/RSAL	docker:redis:7.2	wired-docker
 semurg_graph	graph	semurg	native(installed)	wired-graph
 neo4j	graph	public_ok:GPLv3(CE)	docker:neo4j:5.26-community	wired-graph
 kuzu	graph	public_ok:MIT	embedded(auto-fetched)	wired-graph
@@ -16,7 +16,9 @@ semurg_olap	olap	semurg	native(installed)	wired-olap
 duckdb_olap	olap	public_ok:MIT	duckdb(embedded)	wired-olap
 faiss	vector	public_ok:MIT	pip:faiss-cpu	planned-category
 qdrant	vector	public_ok:Apache-2.0	docker:qdrant/qdrant	planned-category
-opensearch	search	public_ok:Apache-2.0	docker:opensearchproject/opensearch	planned-category
-rocksdb	kv	public_ok:GPLv2/Apache-2.0	embedded	planned-category
-kafka	stream	public_ok:Apache-2.0	docker:apache/kafka	planned-category
-minio	object	public_ok:AGPLv3	docker:minio/minio	planned-category
+opensearch	search	public_ok:Apache-2.0	docker:opensearchproject/opensearch	wired-docker
+rocksdb	kv	public_ok:GPLv2/Apache-2.0	docker:python:3.12-slim(librocksdb-dev,embedded-bench)	wired-docker
+kafka	stream	public_ok:Apache-2.0	docker:apache/kafka	wired-docker
+minio	object	public_ok:AGPLv3	docker:minio/minio	wired-docker
+semurg_universal	universal	semurg	native(installed)	wired-docker
+surrealdb	universal	public_ok:BSL-1.1(self-host-ok)	docker:surrealdb/surrealdb	wired-docker
