@@ -17,7 +17,12 @@
 #     then one confirming probe), with a generous bounded window for slow boot/APOC under contention.
 # Emits: LANE=neo4j STATUS=ok LOAD_MS=.. QUERY_MS=.. VISITED=..
 set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"; . "$here/_common.sh"
-N="${GRAPH_NODES:?}"; HOPS="${GRAPH_HOPS:-3}"; SEEDS="${GRAPH_SEEDS_CSV:?}"; EDGES_CSV="${GRAPH_EDGES_CSV:?}"
+HOPS="${GRAPH_HOPS:-3}"; SEEDS="${GRAPH_SEEDS_CSV:?}"; EDGES_CSV="${GRAPH_EDGES_CSV:?}"
+# node count: honor GRAPH_NODES when the caller sets it (graph_run.sh); otherwise derive the max node id
+# from the edges this lane already requires. run_all_domains passes only GRAPH_NODES_CSV (the same
+# contract kuzu/semurg use), so deriving here makes the lane self-sufficient under BOTH runners -- one
+# data contract, never a bare no-LANE-line DNF from an unset var (Law 0).
+N="${GRAPH_NODES:-$(awk -F, '{if($1+0>m)m=$1+0; if($2+0>m)m=$2+0} END{print m+0}' "$EDGES_CSV")}"
 CAP="${GRAPH_MEM_CAP:-0}"; C="arena_neo4j_$$"; IMG="${NEO4J_IMAGE:-neo4j:5.26-community}"
 BUDGET="${NEO4J_LANE_BUDGET:-840}"          # seconds; MUST stay under the runners' outer timeout (900)
 READY_S="${NEO4J_READY_S:-240}"             # boot + APOC load can be slow under full-board contention
