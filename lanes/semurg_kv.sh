@@ -125,17 +125,31 @@ get_ids = Enum.to_list(1..getsample)
 getfn = fn -> Enum.each(get_ids, fn id -> Shard.fetch(handle, id) end) end
 batchfn = fn -> Shard.fetch_batch(handle, get_ids) end
 
+# OCTOPUS individual-GET (benchmark-fairness law): RocksDB drives `nproc` THREADS each issuing
+# individual `db->Get` over its id partition, so the apples-to-apples Semurg individual-GET is driven
+# the SAME way -- `nshards` share-nothing BEAM callers (one per core) each looping `Shard.fetch` over
+# its stride partition -- NOT a single serial interpreted loop on one core (the `getfn` above, kept
+# only as the single-caller latency floor). This is the MAX-CONCURRENCY individual-GET headline.
+octo_parts = Enum.chunk_every(get_ids, div(getsample, max(nshards, 1)) + 1)
+octofn = fn ->
+  octo_parts
+  |> Enum.map(fn part -> Task.async(fn -> Enum.each(part, fn id -> Shard.fetch(handle, id) end) end) end)
+  |> Enum.each(&Task.await(&1, 120_000))
+end
+
 # ---- 3 CYCLES: cold -> warm -> warm (same store, same BEAM => real belt cold->warm progression) ----
 cycles =
   for cyc <- 1..3 do
     b0 = snap.()
     {gus, _} = :timer.tc(getfn)
+    {ous, _} = :timer.tc(octofn)
     {bus, _} = :timer.tc(batchfn)
     b1 = snap.()
 
     %{
       cyc: cyc,
       get_rps: round(getsample / (gus / 1_000_000.0)),
+      octo_rps: round(getsample / (ous / 1_000_000.0)),
       batch_rps: round(getsample / (bus / 1_000_000.0)),
       sqes: gc.(b1, :sqes_submitted) - gc.(b0, :sqes_submitted),
       odok: gc.(b1, :odirect_open_ok),
@@ -166,6 +180,7 @@ c = fn i, k -> Map.get(Enum.at(cycles, i), k) end
 IO.puts(
   "SEMURG_KV keys=#{n} shards=#{nshards} pipes=#{length(dirs)} load_ms=#{load_ms} " <>
     "get_rps_c1=#{c.(0, :get_rps)} get_rps_c2=#{c.(1, :get_rps)} get_rps_c3=#{c.(2, :get_rps)} " <>
+    "octo_rps_c1=#{c.(0, :octo_rps)} octo_rps_c2=#{c.(1, :octo_rps)} octo_rps_c3=#{c.(2, :octo_rps)} " <>
     "batch_rps_c1=#{c.(0, :batch_rps)} batch_rps_c2=#{c.(1, :batch_rps)} batch_rps_c3=#{c.(2, :batch_rps)} " <>
     "self_equal=#{self_ok} answer=#{answer}"
 )
@@ -201,11 +216,16 @@ if [ -z "$LINE" ]; then
 fi
 
 g(){ sed -n "s/.*$1=\\([0-9a-z]*\\).*/\\1/p" <<<"$LINE"; }
-gc3="$(g get_rps_c3)"
+# HEADLINE (ROWS_PER_S) = the MAX-CONCURRENCY individual point-GET (octopus: nshards BEAM callers,
+# one per core), the apples-to-apples match to RocksDB's nproc-thread individual db->Get. The old
+# single-core serial loop rides on as GET_RPS_* (the single-caller latency floor, never the headline).
+# BATCH_RPS_* is the batch-the-crossing (multiget) row that pairs with RocksDB MultiGet.
+octo3="$(g octo_rps_c3)"
 echo "LANE=semurg_kv STATUS=ok LOAD_MS=$(g load_ms) SHARDS=$(g shards) PIPES=$(g pipes) \
-GET_RPS_C1=$(g get_rps_c1) GET_RPS_C2=$(g get_rps_c2) GET_RPS_C3=$gc3 \
+GET_RPS_C1=$(g get_rps_c1) GET_RPS_C2=$(g get_rps_c2) GET_RPS_C3=$(g get_rps_c3) \
+OCTO_RPS_C1=$(g octo_rps_c1) OCTO_RPS_C2=$(g octo_rps_c2) OCTO_RPS_C3=$octo3 \
 BATCH_RPS_C1=$(g batch_rps_c1) BATCH_RPS_C2=$(g batch_rps_c2) BATCH_RPS_C3=$(g batch_rps_c3) \
-ROWS_PER_S=$gc3 SELF=$(g self_equal) ANSWER=$(g answer) keys=$(g keys)"
+ROWS_PER_S=$octo3 SELF=$(g self_equal) ANSWER=$(g answer) keys=$(g keys)"
 # belt evidence (the un-fakeable #1-TEST proof) passed through verbatim.
 printf '%s\n' "$OUT" | grep '^SEMURG_KV_BELT ' || true
 exit 0

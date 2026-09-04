@@ -47,7 +47,7 @@ echo "== deterministic keyspace: KEYS=$KEYS, value(id)=20-byte BE id, GET_SAMPLE
 REF="$(printf '%040x' $(seq 1 "$ASAMPLE") | sha256sum | cut -c1-32)"
 echo "   reference_answer_hash (independent printf+sha256) = $REF"
 echo
-printf "   %-14s %-9s %-14s %-13s %s\n" engine load_ms get_rps_warm equal-answer note
+printf "   %-14s %-9s %-15s %-15s %-11s %s\n" engine load_ms indiv_get/s multiget/s equal-ans note
 
 # lanes: Semurg (native, self-skips if the release is not installed) + Redis + RocksDB (both docker,
 # self-skip cleanly if docker/image is unavailable). The incumbent board runs on its own if Semurg is
@@ -58,7 +58,7 @@ LANESET="$LANESET redis rocksdb"
 
 semurg_warm=""
 for lane in $LANESET; do
-  [ -f "$LANES/$lane.sh" ] || { printf "   %-14s %-9s %-14s %-13s %s\n" "$lane" "-" "-" "SKIP" "lane-script-absent(lanes/$lane.sh)"; continue; }
+  [ -f "$LANES/$lane.sh" ] || { printf "   %-14s %-9s %-15s %-15s %-11s %s\n" "$lane" "-" "-" "-" "SKIP" "lane-script-absent(lanes/$lane.sh)"; continue; }
   raw="$( ARENA_DATA="$SCRATCH/$lane" KV_KEYS="$KEYS" KV_GET_SAMPLE="$GSAMPLE" KV_ANSWER_SAMPLE="$ASAMPLE" \
       timeout -k 10 "${TO}s" bash "$LANES/$lane.sh" </dev/null 2>/dev/null )"
   line="$(grep -m1 '^LANE=' <<<"$raw")"
@@ -68,6 +68,10 @@ for lane in $LANESET; do
   lm=$(sed -n 's/.*LOAD_MS=\([0-9]*\).*/\1/p' <<<"$line")
   warm=$(sed -n 's/.*ROWS_PER_S=\([0-9]*\).*/\1/p' <<<"$line")
   [ -n "$warm" ] || warm=$(sed -n 's/.*GET_RPS_C3=\([0-9]*\).*/\1/p' <<<"$line")
+  # BATCHED (multiget / batch-the-crossing) throughput: Semurg BATCH_RPS_C3 (deep-QD one-crossing fan),
+  # RocksDB BATCH_RPS_C3 (MultiGet). Engines with no batched form show "-". This is the fair batched-vs-
+  # batched row pairing Semurg's native batch path against RocksDB MultiGet (never batch-vs-individual).
+  batch=$(sed -n 's/.*BATCH_RPS_C3=\([0-9]*\).*/\1/p' <<<"$line")
   reason=$(sed -n 's/.*REASON=\(.*\)/\1/p' <<<"$line")
   pipes=$(sed -n 's/.*PIPES=\([0-9]*\).*/\1/p' <<<"$line"); thr=$(sed -n 's/.*THREADS=\([0-9]*\).*/\1/p' <<<"$line")
   case "$status" in
@@ -78,16 +82,18 @@ for lane in $LANESET; do
       [ -n "$semurg_warm" ] && [ "$lane" != semurg_kv ] && [ -n "$warm" ] && [ "$warm" -gt 0 ] 2>/dev/null && \
         note="Semurg GET $(awk -v a="$semurg_warm" -v b="$warm" 'BEGIN{if(b>0)printf "%.2fx", a/b; else print "-"}') this lane"
       [ -n "$thr$pipes" ] && note="${note:+$note; }drive[threads=${thr:-na} pipes=${pipes:-na}]"
-      printf "   %-14s %-9s %-14s %-13s %s\n" "$lane" "${lm:--}" "${warm:--}" "$eq" "$note";;
-    skip) printf "   %-14s %-9s %-14s %-13s %s\n" "$lane" "-" "-" "SKIP" "$reason";;
-    *)    printf "   %-14s %-9s %-14s %-13s %s\n" "$lane" "-" "-" "DNF" "${reason:-did-not-finish}";;
+      printf "   %-14s %-9s %-15s %-15s %-11s %s\n" "$lane" "${lm:--}" "${warm:--}" "${batch:--}" "$eq" "$note";;
+    skip) printf "   %-14s %-9s %-15s %-15s %-11s %s\n" "$lane" "-" "-" "-" "SKIP" "$reason";;
+    *)    printf "   %-14s %-9s %-15s %-15s %-11s %s\n" "$lane" "-" "-" "-" "DNF" "${reason:-did-not-finish}";;
   esac
 done
 
 echo
 echo "Reading it: 'equal-answer OK' means the lane's point-GETs returned the SAME values as the independent"
-echo "reference (a disagreeing lane is MISMATCH and never counted). get_rps_warm = 3rd-cycle point-GET/s,"
-echo "each engine driven at max concurrency on its node (Redis io-threads+clients, RocksDB all-cores+both-"
-echo "NVMe, Semurg whole-cluster striped). A SKIP carries the exact fix; nothing here is ever a fake number."
+echo "reference (a disagreeing lane is MISMATCH and never counted). indiv_get/s = 3rd-cycle INDIVIDUAL"
+echo "point-GET/s driven at MAX CONCURRENCY (Semurg octopus = N BEAM callers over id partitions; RocksDB ="
+echo "N threads of db->Get). multiget/s = the BATCHED form (Semurg deep-QD one-crossing fetch_batch vs"
+echo "RocksDB MultiGet; '-' = that engine lane has no batched number yet). Both rows are equal-answer gated"
+echo "and driven at max concurrency on each node. A SKIP carries the exact fix; nothing here is ever faked."
 rm -rf "$SCRATCH" 2>/dev/null || true
 [ "${KV_MISMATCH:-0}" = 0 ] || { echo; echo "PARITY FAIL: a lane's values disagreed with the independent reference (MISMATCH above). Exiting non-zero so a wrong answer never passes green."; exit 3; }

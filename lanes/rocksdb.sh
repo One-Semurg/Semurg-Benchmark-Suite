@@ -119,6 +119,26 @@ int main(){
     printf("ROCKSDB_GET_RPS_C%d=%llu\n",cyc,rps);
     if(done.load()!=get_sample){ printf("ROCKSDB_ERROR=get-miss(got=%llu want=%llu)\n",(unsigned long long)done.load(),(unsigned long long)get_sample); return 3; } }
 
+  // BATCHED MultiGet (the fair batched-vs-batched row that pairs with Semurg's deep-QD fetch_batch): each
+  // thread issues ONE rocksdb MultiGet over its id partition, all cores in parallel. Per-slot equal to the
+  // individual db->Get above (same keys/values); the equal-answer material below still uses individual Get
+  // so the ANSWER hash is byte-unchanged. 3 cycles cold->warm->warm2; C3 (warm) is the reported batched RPS.
+  for(int cyc=1;cyc<=3;cyc++){ std::atomic<uint64_t> done{0}; auto g0=steady_clock::now();
+    std::vector<std::thread> ths; uint64_t per=(get_sample+threads-1)/threads;
+    for(uint64_t t=0;t<threads;t++){ ths.emplace_back([&,t](){
+      uint64_t lo=t*per+1; uint64_t hi=std::min(get_sample,(t+1)*per); if(lo>hi) return;
+      std::vector<std::string> keybuf; std::vector<rocksdb::Slice> keys; std::vector<std::string> vals;
+      keybuf.reserve(hi-lo+1); keys.reserve(hi-lo+1);
+      for(uint64_t id=lo;id<=hi;id++){ char k[8]; put_be(k,8,id); keybuf.emplace_back(k,8); }
+      for(auto&s:keybuf) keys.emplace_back(s.data(),s.size());
+      std::vector<rocksdb::Status> sts=db->MultiGet(ro,keys,&vals);
+      uint64_t ok=0; for(auto&st:sts) if(st.ok()) ok++; done+=ok; }); }
+    for(auto&th:ths) th.join();
+    double secs=duration_cast<microseconds>(steady_clock::now()-g0).count()/1e6;
+    unsigned long long rps = secs>0 ? (unsigned long long)(get_sample/secs) : 0ULL;
+    printf("ROCKSDB_BATCH_RPS_C%d=%llu\n",cyc,rps);
+    if(done.load()!=get_sample){ printf("ROCKSDB_ERROR=multiget-miss(got=%llu want=%llu)\n",(unsigned long long)done.load(),(unsigned long long)get_sample); return 3; } }
+
   { FILE* f=fopen(answer_file,"wb"); if(!f){ printf("ROCKSDB_ERROR=answer-file-open\n"); return 4; }
     std::string val; char k[8]; static const char hx[]="0123456789abcdef"; char line[40];
     for(uint64_t id=1;id<=answer_sample;id++){ put_be(k,8,id);
@@ -193,11 +213,12 @@ OUT="$(timeout -k 10 "$TO" docker run --rm --name "$C" --label "$ARENA_LABEL=1" 
 g(){ sed -n "s/^$1=\([0-9a-f]*\).*/\1/p" <<<"$OUT" | tail -1; }
 ans="$(g ROCKSDB_ANSWER)"; load="$(g ROCKSDB_LOAD_MS)"
 c1="$(g ROCKSDB_GET_RPS_C1)"; c2="$(g ROCKSDB_GET_RPS_C2)"; c3="$(g ROCKSDB_GET_RPS_C3)"
+c3b="$(g ROCKSDB_BATCH_RPS_C3)"
 err="$(sed -n 's/^ROCKSDB_ERROR=\(.*\)/\1/p' <<<"$OUT" | tail -1)"
 
 if [ -n "$ans" ] && [ -n "$c3" ]; then
   echo "LANE=rocksdb STATUS=ok LOAD_MS=${load:-0} GET_RPS_C1=${c1:-0} GET_RPS_C2=${c2:-0} GET_RPS_C3=${c3:-0} \
-ROWS_PER_S=${c3:-0} ANSWER=$ans keys=$KV_KEYS THREADS=$KV_THREADS PIPES=$PIPES"
+BATCH_RPS_C3=${c3b:-0} ROWS_PER_S=${c3:-0} ANSWER=$ans keys=$KV_KEYS THREADS=$KV_THREADS PIPES=$PIPES"
   echo "ROCKSDB_INFO engine=rocksdb(embedded,librocksdb) threads=$KV_THREADS disk_pipes=$PIPES \
 load_ms=${load:-0} get_rps_cold=${c1:-0} get_rps_warm=${c3:-0} note=[max-concurrency point-GET, WAL-off parallel load, both-NVMe db_paths]"
 elif [ -n "$err" ]; then
