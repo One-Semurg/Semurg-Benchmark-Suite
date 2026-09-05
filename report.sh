@@ -176,12 +176,13 @@ END{
   aline("data  deterministic generators (same knobs => same bytes => same answer hash)")
   aline("gate  a lane counts ONLY if its answer hash matches the reference; losses shown")
   aline("      straight; DNF = did-not-finish at the budget; no fake numbers")
+  aline("(Nx)  incumbent raw / Semurg on the same metric: 1.0x same, 2x double, 0.5x half")
   printf "%s%s%s\n", ML, rep(H,86), MR
-  aline(sprintf("%-13s %-15s %-17s %-3s %s","DOMAIN","SEMURG","BEST INCUMBENT","=AN","VERDICT"))
+  aline(sprintf("%-13s %-13s %-22s %-3s %s","DOMAIN","SEMURG","BEST INCUMBENT (Nx)","=AN","VERDICT"))
   printf "%s%s%s\n", ML, rep(H,86), MR
   for(k=1;k<=11;k++){
     d=DORDER[k]; if(!(d in DOMSEEN)) continue
-    aline(sprintf("%-2d %-10s %-15s %-17s %-3s %s", dnum[d], d, sfmt(d), substr(incfmt(d),1,17), BJ_badge[d], VJ[d]))
+    aline(sprintf("%-2d %-10s %-13s %-22s %-3s %s", dnum[d], d, sfmt(d), substr(incfmt(d),1,22), BJ_badge[d], VJ[d]))
     if(d in crownrow) aline(sprintf("   %-10s %s CROWN: %s","  ooc", CROWN, crownrow[d]))
     if(d in foldrow)  aline(sprintf("   %-10s %s FOLD %s","  fold", FOLD, foldrow[d]))
   }
@@ -219,7 +220,13 @@ function sfmt(d,   v){                # semurg headline cell (ASCII + HTML)
   if(d=="relational"){ return "q2 " (SEM_q2[d]==""?"-":SEM_q2[d]) "ms" }
   return (SEMV[d]==""?"-":SEMV[d] " ms")
 }
-function incfmt(d){ return (INCN[d]==""? "-" : INCN[d] (INCV[d]==""?"":" " human(INCV[d]))) }
+function ratio_nx(d,   rr){   # (Nx) = incumbent-raw / Semurg-raw on the SAME metric (direction-agnostic,
+  # transparent: 1.0x same, 2.0x double, 0.5x half). Reader interprets by metric.
+  if(INCV[d]=="" || SEMV[d]=="" || SEMV[d]+0==0) return ""
+  rr=(INCV[d]+0)/(SEMV[d]+0)
+  if(rr>=100) return sprintf("(%.0fx)",rr); if(rr>=10) return sprintf("(%.0fx)",rr); return sprintf("(%.1fx)",rr)
+}
+function incfmt(d){ return (INCN[d]==""? "-" : INCN[d] (INCV[d]==""?"":" " human(INCV[d]) (ratio_nx(d)==""?"":" " ratio_nx(d)))) }
 # ---- HTML renderer (self-contained, theme-aware, no deps) ----
 function render_html(out,   d,k){
   print "<!doctype html><html lang=en><head><meta charset=utf-8>" > out
