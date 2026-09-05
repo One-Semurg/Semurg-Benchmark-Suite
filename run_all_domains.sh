@@ -195,8 +195,12 @@ parse_lane(){
   [ -n "$P_NOTE" ] || P_NOTE="$(sed -n 's/.*REASON=\(.*\)/\1/p;s/.*reason=\(.*\)/\1/p' <<<"$line")"
 }
 
-emit_row(){ # dname engine load qms hash status
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:--}" "${4:--}" "${5:--}" "$6" >> "$OUT_TSV"
+emit_row(){ # dname engine load qms hash status variant note
+  # 8 columns: the renderer (report.sh) consumes THIS normalised TSV, never a re-parse of LANE= lines
+  # (one parser, one path). variant=wtag (so graph in-core vs out-of-core are distinguishable);
+  # note carries teps=/peak_rss_mb=/reason= (already computed in P_NOTE, previously dropped) so the
+  # crown's flat-memory proof and the honest DNF reason reach the card.
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:--}" "${4:--}" "${5:--}" "$6" "${7:--}" "${8:--}" >> "$OUT_TSV"
 }
 
 # ---- workload references (equal-answer buckets) -------------------------------------------
@@ -378,7 +382,20 @@ CMDS
 # ============================================================================================
 run_board(){
   : > "$OUT_TSV"
-  printf 'domain\tengine\tload_ms\tq_ms(list)\tequal_answer_hash\tstatus\n' >> "$OUT_TSV"
+  # #meta banner (self-describing + defensible): the renderer parses these leading comment lines for
+  # the report header. Kept in the SAME TSV (not a sidecar) so it stays one artifact; awk '!/^#/' drops
+  # them for row parsing. Deterministic generators => same KNOBS reproduce the same dataset + hash.
+  local KNOBS_STR="graph_incore=${GRAPH_INCORE_NODES:-100000};graph_ooc=${GRAPH_OOC_NODES:-3000000};graph_mem_cap=${GRAPH_MEM_CAP:-2G};vec=${VEC_N:-20000}x${VEC_D:-64};ts=${SEMURG_TS_ROWS:-500000};orders=${SEMURG_ARENA_ROWS:-200000};olap=${OLAP_ROWS:-20000000}"
+  {
+    printf '#meta host=%s\n'         "$(uname -sm 2>/dev/null || echo unknown)"
+    printf '#meta cores=%s\n'        "$(nproc 2>/dev/null || echo '?')"
+    printf '#meta ram_gib=%s\n'      "$(awk '/MemTotal/{printf "%.0f",$2/1048576}' /proc/meminfo 2>/dev/null || echo '?')"
+    printf '#meta suite_commit=%s\n' "$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    printf '#meta run_utc=%s\n'      "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '#meta licensed=%s\n'     "$LICENSED"
+    printf '#meta knobs=%s\n'        "$KNOBS_STR"
+  } >> "$OUT_TSV"
+  printf 'domain\tengine\tload_ms\tq_ms(list)\tequal_answer_hash\tstatus\tvariant\tnote\n' >> "$OUT_TSV"
   echo "############################################################################################"
   echo "# run_all_domains.sh -- LIVE BOARD  ($(uname -sm), $(nproc) cores)  ->  $OUT_TSV"
   [ "$LICENSED" = 1 ] && echo "# --licensed ON: DeWitt rows are LABELLED [DeWitt-internal] and MUST NEVER be published."
@@ -398,7 +415,7 @@ run_board(){
         # DRY: show the invocation, generate NO dataset, run NO lane.
         local sp="$LANES/$script.sh"; local wired="planned"; [ -f "$sp" ] && wired="wired"
         echo "   [dry-run] $engine  ($role/$lic, wtag=$wtag) -> lanes/$script.sh ($wired)"
-        emit_row "$dname" "$elabel" "-" "-" "-" "dry-run"
+        emit_row "$dname" "$elabel" "-" "-" "-" "dry-run" "$wtag" "-"
         continue
       fi
       gen_for_tag "$wtag"
@@ -410,7 +427,7 @@ run_board(){
       fi
       gate_status "$wtag"
       printf "   %-24s %-10s %-26s %-14s %s\n" "$elabel" "${P_LOAD:--}" "${P_QMS:--}" "${REF[$wtag]:+ref=${REF[$wtag]:0:8}}" "$FSTAT${P_NOTE:+ ($P_NOTE)}"
-      emit_row "$dname" "$elabel" "$P_LOAD" "$P_QMS" "$P_HASH" "$FSTAT"
+      emit_row "$dname" "$elabel" "$P_LOAD" "$P_QMS" "$P_HASH" "$FSTAT" "$wtag" "$P_NOTE"
     done < <(plan_lines)
   done
   rm -rf "$SCRATCH_ROOT" 2>/dev/null || true
@@ -427,6 +444,15 @@ run_board(){
   echo "            | skip | dnf | planned (lane not yet wired -- never a fake number)"
   if [ "$LICENSED" = 1 ]; then
     echo "   NOTE: rows whose engine ends [DeWitt-internal] are licence-restricted -- LOCAL ONLY, never publish."
+  fi
+  # Render the ONE end-of-run report: an ASCII scorecard to stdout (always, SSH-safe) + a
+  # self-contained arena_report.html next to the TSV (the screenshot-and-repost artifact). One
+  # renderer, two skins -- it consumes THIS normalised TSV (never re-parses LANE= lines) and drops
+  # every DeWitt row from the shareable card by construction, so a --licensed run still yields a
+  # publication-safe card.
+  if [ -x "$HERE/report.sh" ]; then
+    echo
+    bash "$HERE/report.sh" "$OUT_TSV" || echo "   (report.sh render skipped -- TSV still written to $OUT_TSV)"
   fi
   return 0
 }
