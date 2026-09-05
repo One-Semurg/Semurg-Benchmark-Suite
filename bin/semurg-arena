@@ -178,7 +178,7 @@ while [ $# -gt 0 ]; do case "$1" in
          --all) run_all; exit 0;;
          --graph) run_graph; exit 0;;
          --olap) run_olap; exit 0;;
-         --licensed) shift; for l in kdb elasticsearch tigergraph memgraph dragonfly; do run_lane "$l"; done; exit 0;;
+         --licensed) shift; [ "${I_HAVE_A_LICENCE:-}" = yes ] || { echo "run --licensed requires I_HAVE_A_LICENCE=yes (you assert you hold the vendor licences; Semurg never benchmarks or publishes these DeWitt-restricted engines)" >&2; exit 2; }; for l in kdb elasticsearch tigergraph memgraph dragonfly; do run_lane "$l"; done; exit 0;;
          "" ) echo "run what? see --help"; exit 2;;
          * ) [ -f "$DATA/orders.csv" ] || gen; run_lane "$1"; exit 0;;
        esac;;
