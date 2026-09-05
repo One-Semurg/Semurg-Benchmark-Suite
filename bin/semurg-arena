@@ -71,14 +71,12 @@ run_all(){
   if [ "$ds" = ok ]; then echo "== docker: ready -> incumbent engine lanes will run =="
   else echo "== docker: $ds -> $(arena_docker_fix "$ds"). Docker lanes SKIP; embedded lanes (sqlite/duckdb) still run. =="; fi
   echo
-  local ref="" results=()
+  local results=() result_cats=()
   # public-license wired lanes, in manifest order
   while IFS=$'\t' read -r name cat lic eng status <&9; do
     case "$status" in
       wired|wired-docker)
-        line="$(run_lane "$name")"; echo "$line"; results+=("$line")
-        h="$(sed -n 's/.*ANSWER_HASH=\([0-9a-f]*\).*/\1/p' <<<"$line")"
-        [ -z "$ref" ] && [ -n "$h" ] && ref="$h";;
+        line="$(run_lane "$name")"; echo "$line"; results+=("$line"); result_cats+=("$cat");;
       wired-graph)
         # the graph lane has its OWN workload + parity gate (different from the SQL board); run it via
         # `semurg-arena run --graph`, not here, so a graph engine is never mis-scored on the SQL queries.
@@ -93,17 +91,32 @@ run_all(){
   done 9< <(lane_rows | awk -F'\t' '{print $1"\t"$2"\t"$3"\t"$4"\t"$5}')
   echo
   board_mismatch=0
-  echo "== equal-answer parity gate (reference hash=$ref) =="
-  for r in "${results[@]}"; do
+  # EQUAL-ANSWER PARITY, PER CATEGORY. Lanes are equal-answer peers ONLY when they run the SAME
+  # workload = the SAME category (relational/olap/kv/timeseries/document/stream/object/universal).
+  # The first answering lane in a category is that category's reference; every other lane in the
+  # category must match IT. Cross-category comparison is meaningless -- a KV point-read hash never
+  # equals a relational-aggregate hash -- so a single global reference produced a FALSE PARITY FAIL
+  # (exit 3 on any docker box). Grouping the gate on category fixes it without weakening it: a REAL
+  # within-category disagreement still fails. A lane carries its answer hash as either ANSWER_HASH=<hex>
+  # or ANSWER=<hex> (redis/clickhouse/kafka/stream/olap emit the ANSWER= key); both are the SAME 32-hex
+  # hash_answer() digest, so accept either -- a lane that ran and answered is COUNTED, never mislabeled
+  # SKIPPED just because it used the ANSWER= key.
+  echo "== equal-answer parity gate (per-category; each lane matches its OWN category's reference) =="
+  declare -A cat_ref
+  local i r cat h n
+  for i in "${!results[@]}"; do
+    r="${results[$i]}"; cat="${result_cats[$i]}"
     h="$(sed -n 's/.*ANSWER_HASH=\([0-9a-f]*\).*/\1/p' <<<"$r")"
+    [ -z "$h" ] && h="$(sed -n 's/.* ANSWER=\([0-9a-f]*\).*/\1/p' <<<"$r")"
     n="$(sed -n -e 's/^LANE=\([^ ]*\).*/\1/p' -e 's/^SKIP \([^ ]*\).*/\1/p' <<<"$r" | head -1)"; [ -z "$n" ] && n="?"
-    if echo "$r" | grep -q 'status=FAILED'; then echo "  $n: FAILED (engine error; not counted)"
-    elif [ -z "$h" ]; then echo "  $n: SKIPPED (engine not available)"
-    elif [ "$h" = "$ref" ]; then echo "  $n: EQUAL-ANSWER OK"
-    else echo "  $n: MISMATCH ($h != $ref) -- NOT counted"; board_mismatch=1; fi
+    if echo "$r" | grep -q 'status=FAILED'; then echo "  $n [$cat]: FAILED (engine error; not counted)"
+    elif [ -z "$h" ]; then echo "  $n [$cat]: SKIPPED (engine not available / no answer emitted)"
+    elif [ -z "${cat_ref[$cat]:-}" ]; then cat_ref[$cat]="$h"; echo "  $n [$cat]: EQUAL-ANSWER OK (category reference)"
+    elif [ "$h" = "${cat_ref[$cat]}" ]; then echo "  $n [$cat]: EQUAL-ANSWER OK"
+    else echo "  $n [$cat]: MISMATCH ($h != ${cat_ref[$cat]} within $cat) -- NOT counted"; board_mismatch=1; fi
   done
   echo
-  [ "${board_mismatch:-0}" = 0 ] || { echo; echo "PARITY FAIL: a lane disagreed with the equal-answer reference (MISMATCH above). Exiting non-zero."; arena_cleanup_containers; exit 3; }
+  [ "${board_mismatch:-0}" = 0 ] || { echo; echo "PARITY FAIL: a lane disagreed with ITS CATEGORY's equal-answer reference (MISMATCH above). Exiting non-zero."; arena_cleanup_containers; exit 3; }
   echo "Add the Semurg lane:  semurg-arena install   (then re-run). Your own license-restricted engines"
   echo "run LOCAL-ONLY, shown only to you:  I_HAVE_A_LICENCE=yes semurg-arena run --licensed"
   echo "GRAPH head-to-head (Semurg vs Neo4j vs Kuzu, in-core + out-of-core crown):  semurg-arena run --graph"
