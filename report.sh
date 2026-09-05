@@ -82,6 +82,9 @@ function metric_val(dom, list,   mk,v){
 }
 function is_counted(st){ return (st=="ok-reference"||st=="ok-matched"||st=="ok") }
 function fmtx(r){ if(r>=100) return sprintf("%.0fx",r); if(r>=10) return sprintf("%.0fx",r); return sprintf("%.1fx",r) }
+# humanize a magnitude so billions/millions read correctly (and never clip in a fixed cell).
+# Only large values (>=100000, i.e. the rps metrics) are abbreviated; ms values pass through unchanged.
+function human(n){ n=n+0; if(n<100000) return n""; if(n<1e6) return sprintf("%.0fk",n/1e3); if(n<1e9) return sprintf("%.1fM",n/1e6); if(n<1e12) return sprintf("%.1fB",n/1e9); return sprintf("%.1fT",n/1e12) }
 # ---- render -----------------------------------------------------------------------------------
 END{
   # box-drawing chars: Unicode by default (they sit at fixed line positions, not inside padded fields,
@@ -178,8 +181,7 @@ END{
   printf "%s%s%s\n", ML, rep(H,86), MR
   for(k=1;k<=11;k++){
     d=DORDER[k]; if(!(d in DOMSEEN)) continue
-    iname=(INCN[d]==""?"-":INCN[d]) (INCV[d]==""?"":" "INCV[d])
-    aline(sprintf("%-2d %-10s %-15s %-17s %-3s %s", dnum[d], d, sfmt(d), substr(iname,1,17), BJ_badge[d], VJ[d]))
+    aline(sprintf("%-2d %-10s %-15s %-17s %-3s %s", dnum[d], d, sfmt(d), substr(incfmt(d),1,17), BJ_badge[d], VJ[d]))
     if(d in crownrow) aline(sprintf("   %-10s %s CROWN: %s","  ooc", CROWN, crownrow[d]))
     if(d in foldrow)  aline(sprintf("   %-10s %s FOLD %s","  fold", FOLD, foldrow[d]))
   }
@@ -210,13 +212,14 @@ END{
 function rep(c,n,   s){ s=""; while(n-->0) s=s c; return s }
 function aline(s){ printf "%s %-85.85s%s\n", V, s, V }   # pad AND clip to 85 so the box stays aligned
 function sems(d){ return "semurg" }
-function sfmt(d,   v){                # semurg headline cell for ASCII
+function sfmt(d,   v){                # semurg headline cell (ASCII + HTML)
   if(d=="graph"){ return (SEMV[d]==""?"-":SEMV[d] " ms") }
-  if(d=="columnar"){ return (SEMV[d]==""?"-":SEMV[d] " rps") }
-  if(d=="kv"){ return (SEMV[d]==""?"-":SEMV[d] " /s") }
+  if(d=="columnar"){ return (SEMV[d]==""?"-":human(SEMV[d]) " rps") }
+  if(d=="kv"){ return (SEMV[d]==""?"-":human(SEMV[d]) " /s") }
   if(d=="relational"){ return "q2 " (SEM_q2[d]==""?"-":SEM_q2[d]) "ms" }
   return (SEMV[d]==""?"-":SEMV[d] " ms")
 }
+function incfmt(d){ return (INCN[d]==""? "-" : INCN[d] (INCV[d]==""?"":" " human(INCV[d]))) }
 # ---- HTML renderer (self-contained, theme-aware, no deps) ----
 function render_html(out,   d,k){
   print "<!doctype html><html lang=en><head><meta charset=utf-8>" > out
@@ -254,7 +257,7 @@ function render_html(out,   d,k){
     d=DORDER[k]; if(!(d in DOMSEEN)) continue
     cls="mixed"; if(VJ[d]~/WIN/)cls="win"; else if(VJ[d]~/LOSS/)cls="loss"; else if(VJ[d]~/survives|CROWN/)cls="crown"
     eqcell = (BJ_badge[d]==XX ? "<span class=eqno>&#10007; mismatch</span>" : (BJ_badge[d]=="-" ? "<span class=eqno>&ndash;</span>" : "<span class=eqok>&#10003;</span>"))
-    inc = (INCN[d]==""?"&ndash;":htmlesc(INCN[d]) (INCV[d]==""?"":" "INCV[d]))
+    inc = (INCN[d]==""?"&ndash;":htmlesc(incfmt(d)))
     printf "<tr><td>%d %s</td><td class=v>%s</td><td>%s</td><td>%s</td><td><span class=\"tag %s\">%s</span></td></tr>\n", dnum[d], d, htmlesc(sfmt(d)), inc, eqcell, cls, htmlesc(VJ[d]) > out
     if(d in crownrow) printf "<tr class=sub-row><td></td><td colspan=4>&#9819; out-of-core crown: %s</td></tr>\n", htmlesc(crownrow[d]) > out
     if(d in foldrow)  printf "<tr class=sub-row><td></td><td colspan=4><span class=\"tag fold\">&#9889; FOLD</span> %s</td></tr>\n", htmlesc(foldrow[d]) > out
