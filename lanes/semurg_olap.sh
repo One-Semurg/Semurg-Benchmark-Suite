@@ -3,7 +3,7 @@
 # installed release's eval (starts substrate_core, native engine engaged, THROWAWAY store). Reports BOTH
 # numbers honestly: RAW SCAN (O(N) SIMD sweep) and FOLD-AT-INGEST (O(1) point-get). Emits:
 #   LANE=semurg_olap STATUS=ok SCAN_RPS=.. FOLD_RPS=.. SELF_EQUAL=.. ANSWER=<hash>
-set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"; . "$here/_common.sh"
+set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"
 EXS="${OLAP_EXS:?}"; SCRATCH="${OLAP_SCRATCH:?}"; mkdir -p "$SCRATCH"
 REL="${SEMURG_REL_BIN:-/opt/semurg/bin/r11}"; [ -x "$REL" ] || REL="$(command -v r11 2>/dev/null || true)"
 [ -n "$REL" ] && [ -x "$REL" ] || { echo "LANE=semurg_olap STATUS=skip REASON=release-not-installed(run:semurg-arena install)"; exit 0; }

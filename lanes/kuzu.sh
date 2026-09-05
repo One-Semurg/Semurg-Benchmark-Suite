@@ -3,7 +3,7 @@
 # k-hop reachability count via variable-length `*0..HOPS` (QUERY). Optional hard memory cap via
 # systemd-run + a matching buffer-pool size (out-of-core regime). Equal-answer: `visited` must match
 # the reference. Emits: LANE=kuzu STATUS=ok LOAD_MS=.. QUERY_MS=.. VISITED=..
-set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"; . "$here/_common.sh"
+set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"
 SCRATCH="${GRAPH_SCRATCH:?}"; CAP="${GRAPH_MEM_CAP:-0}"; CAPMB="${GRAPH_CAP_MB:-0}"
 KUZU_VER="${KUZU_VER:-0.11.3}"
 KZ="${KUZU_BIN:-}"; [ -z "$KZ" ] && [ -x "$here/../bin/kuzu" ] && KZ="$here/../bin/kuzu"

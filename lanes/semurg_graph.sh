@@ -4,7 +4,7 @@
 # HOT whole-graph k-hop (QUERY). Optional hard memory cap via systemd-run (out-of-core regime), so the
 # survive-at-flat-memory claim is measured under the SAME budget as the incumbents. Emits one line:
 #   LANE=semurg_graph STATUS=ok LOAD_MS=.. QUERY_MS=.. VISITED=.. TEPS=.. PEAK_RSS_MB=..
-set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"; . "$here/_common.sh"
+set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"
 WALK="${GRAPH_WALK_EXS:?}"; SCRATCH="${GRAPH_SCRATCH:?}"; CAP="${GRAPH_MEM_CAP:-0}"
 REL="${SEMURG_REL_BIN:-/opt/semurg/bin/r11}"
 [ -x "$REL" ] || REL="$(command -v r11 2>/dev/null || true)"
@@ -26,20 +26,24 @@ ENVS=(
 CMD=(bash -c "$REL eval \"\$(cat '$WALK')\"")
 
 if [ "$CAP" != 0 ] && [ -n "$CAP" ] && command -v systemd-run >/dev/null 2>&1; then
-  OUT="$(systemd-run --scope -p MemoryMax="$CAP" -p MemorySwapMax=0 --quiet "${ENVS[@]}" "${CMD[@]}" 2>&1)"
+  OUT="$(systemd-run --scope -p MemoryMax="$CAP" -p MemorySwapMax=0 --quiet "${ENVS[@]}" "${CMD[@]}" 2>&1)"; rc=$?
 else
   # no cap (in-core) or no systemd: export env directly and run
   eval "$(for e in "${ENVS[@]}"; do echo "export ${e#--setenv=}"; done)"
-  OUT="$("${CMD[@]}" 2>&1)"
+  OUT="$("${CMD[@]}" 2>&1)"; rc=$?
 fi
 
 LINE="$(printf '%s\n' "$OUT" | grep -m1 '^SEMURG_GRAPH ')"
 for e in "" .arith .sb .coloc .genoff.idx .genoff.idx.sparse .deadset.idx; do rm -f "$D/graph.bin$e"; done
 if [ -z "$LINE" ]; then
-  if printf '%s' "$OUT" | grep -qiE 'killed|out of memory|oom'; then
-    echo "LANE=semurg_graph STATUS=dnf REASON=oom-killed-at-cap-$CAP"
+  # A cgroup SIGKILL (137) leaves $OUT empty (the OOM notice goes to the journal, not the pipe), so the
+  # exit code -- not a text grep -- is the reliable signal. NEVER emit an empty engine-error([]) (BUG-1 FIX B).
+  rc="${rc:-0}"
+  if [ "$rc" -ge 128 ] 2>/dev/null || printf '%s' "$OUT" | grep -qiE 'killed|out of memory|oom'; then
+    echo "LANE=semurg_graph STATUS=dnf REASON=oom-killed-at-cap-$CAP(exit=$rc; raise the cap or lower SEMURG_COLOC_RAM_BUDGET)"
   else
-    echo "LANE=semurg_graph STATUS=dnf REASON=engine-error([$(printf '%s' "$OUT" | tr '\n' ' ' | tail -c 100)])"
+    tail100="$(printf '%s' "$OUT" | tr '\n' ' ' | tail -c 100)"
+    echo "LANE=semurg_graph STATUS=dnf REASON=engine-error(exit=$rc: ${tail100:-<no output; process died at cap without printing -- likely SIGKILL>})"
   fi
   exit 0
 fi

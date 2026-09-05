@@ -10,16 +10,12 @@
 #                 memory (disk = truth). THIS survive-vs-DNF is the crown -- reproducible on your box
 #                 because the budget is fixed by the lane, not by how much RAM you happen to have.
 set -uo pipefail
-GRAPH_MISMATCH=0
 HERE="$(cd "$(dirname "$0")"&&pwd)"
-LANES="${GRAPH_LANES_DIR:-$HERE/lanes}"; WORK="${GRAPH_WORK_DIR:-$HERE/workload}"
+LANES="${GRAPH_LANES_DIR:-$HERE/lanes}"; WORK="${GRAPH_WORK_DIR:-$HERE}"
 SCRATCH_ROOT="${GRAPH_SCRATCH_ROOT:-${TMPDIR:-/tmp}/arena_graph}"
 export GRAPH_WALK_EXS="${GRAPH_WALK_EXS:-$WORK/semurg_walk.exs}"
-# Per-lane outer timeout. Kept at/above the Neo4j lane's internal budget (NEO4J_LANE_BUDGET=840s) so a
-# slow Neo4j (JVM boot + APOC + big load under a memory cap) self-emits a clean line before the outer
-# kill -- never a bare "no-LANE-line" DNF.
-TO="${LANE_TIMEOUT:-900}"
-. "$LANES/_common.sh"
+TO="${LANE_TIMEOUT:-600}"
+# (dead _common.sh source removed 2026-09-01; lanes are self-contained)
 
 cap_mb(){ case "$1" in 0|"") echo 0;; *[Gg]) echo $(( ${1%[Gg]} * 1024 ));; *[Mm]) echo ${1%[Mm]};; *) echo $(( $1 / 1048576 ));; esac; }
 
@@ -59,14 +55,15 @@ run_regime(){ # label N DEG HOPS NSEEDS CAP
     local eq note=""
     case "$status" in
       ok)
-        if [ "$v" = "$REF" ]; then eq="OK"; else eq="MISMATCH"; GRAPH_MISMATCH=1; fi
+        if [ "$v" = "$REF" ]; then eq="OK"; else eq="MISMATCH"; [ "$lane" = semurg_graph ] && SUITE_MISMATCH=$(( ${SUITE_MISMATCH:-0} + 1 )); fi
         [ "$lane" = semurg_graph ] && { note="peak_rss=${rs}MB"; semq="$qm"; }
         [ -n "$semq" ] && [ "$lane" != semurg_graph ] && [ -n "$qm" ] && [ "$qm" -gt 0 ] 2>/dev/null && \
           note="Semurg query $(awk -v a="$qm" -v b="$semq" 'BEGIN{if(b>0)printf "%.1fx", a/b; else print "-"}') faster"
         printf "   %-14s %-9s %-9s %-9s %-13s %s\n" "$lane" "${lm:-–}" "${qm:-–}" "${v:-–}" "$eq" "$note"
         VIS[$lane]="$v"; QMS[$lane]="$qm";;
       skip)
-        printf "   %-14s %-9s %-9s %-9s %-13s %s\n" "$lane" "–" "–" "–" "SKIP" "${reason}";;
+        printf "   %-14s %-9s %-9s %-9s %-13s %s\n" "$lane" "–" "–" "–" "SKIP" "${reason}"
+        case "$reason" in *release-not-installed*) SUITE_SKIP_SHIPPED=$(( ${SUITE_SKIP_SHIPPED:-0} + 1 ));; esac;;
       *)
         printf "   %-14s %-9s %-9s %-9s %-13s %s\n" "$lane" "–" "–" "–" "DNF" "${reason:-did-not-finish}";;
     esac
@@ -90,5 +87,18 @@ echo "the numbers straight -- Semurg is competitive/faster than Neo4j; a Memgrap
 echo "engine may beat our raw TEPS (run it yourself). The out-of-core row is the point: at a FIXED"
 echo "memory budget on a bigger-than-budget graph, the engines that keep the graph in RAM DNF while"
 echo "Semurg finishes at flat memory -- the survive-vs-DNF result no competitor can argue away."
+if [ "${ARENA_REQUIRE_SHIPPED:-0}" = 1 ] && [ "${SUITE_SKIP_SHIPPED:-0}" -gt 0 ]; then
+  echo
+  echo "GATE FAIL: ${SUITE_SKIP_SHIPPED} graph lane run(s) skipped with release-not-installed under ARENA_REQUIRE_SHIPPED=1 (r11 GATE)"
+  rm -rf "$SCRATCH_ROOT" 2>/dev/null || true
+  exit 3
+fi
+# G3: a Semurg-lane equal-answer MISMATCH (its k-hop count != the independent reference) is a WRONG
+# answer, never a green board -- fail the gate instead of merely printing MISMATCH.
+if [ "${ARENA_REQUIRE_SHIPPED:-0}" = 1 ] && [ "${SUITE_MISMATCH:-0}" -gt 0 ]; then
+  echo
+  echo "GATE FAIL: ${SUITE_MISMATCH} Semurg graph lane(s) returned a MISMATCH vs the reference under ARENA_REQUIRE_SHIPPED=1 (r11 GATE)"
+  rm -rf "$SCRATCH_ROOT" 2>/dev/null || true
+  exit 3
+fi
 rm -rf "$SCRATCH_ROOT" 2>/dev/null || true
-[ "${GRAPH_MISMATCH:-0}" = 0 ] || { echo; echo "PARITY FAIL: an engine returned a k-hop count that disagrees with the independent reference (MISMATCH above). Exiting non-zero."; exit 3; }

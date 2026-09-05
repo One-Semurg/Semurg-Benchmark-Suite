@@ -3,7 +3,7 @@
 # BY (r % G) over the SAME rows, in-core (table pre-materialised), at thread parity. Emits:
 #   LANE=duckdb_olap STATUS=ok ROWS_PER_S=.. ANSWER=<hash>
 # The ANSWER is sha256 of the per-bucket counts in bucket order -- the SAME hash the Semurg side emits.
-set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"; . "$here/_common.sh"
+set -uo pipefail; here="$(cd "$(dirname "$0")"&&pwd)"
 ROWS="${OLAP_ROWS:-20000000}"; NG="${OLAP_GROUPS:-64}"; THREADS="${OLAP_THREADS:-$(nproc)}"
 DUCK="${DUCKDB_BIN:-duckdb}"
 command -v "$DUCK" >/dev/null 2>&1 || { echo "LANE=duckdb_olap STATUS=skip REASON=duckdb-binary-not-found(set DUCKDB_BIN or install from duckdb.org)"; exit 0; }
