@@ -10,6 +10,14 @@ curl -fsSL https://one.semurg.io/bench | sudo bash -s -- --graph    # one domain
 curl -fsSL https://one.semurg.io/bench | sudo bash -s -- --graph --only "semurg_docker arcadedb"
 ```
 
+A graph bigger than memory: every engine, Semurg included, held to 12 GB of memory on SNAP's com-Friendster (1.8 billion
+relationships). Set `sudo sysctl -w vm.nr_hugepages=0` first: memory reserved that way is outside the 12 GB limit, so the
+runner refuses until it is zero.
+
+```bash
+curl -fsSL https://one.semurg.io/bench | sudo env BENCH_BAND=exceeds_cap ARENA_MEM_CAP_GB=12 BENCH_DATASET_GRAPH=friendster_cap bash -s -- --graph
+```
+
 - Every engine answers the same questions on the same data on the same machine.
 - Every answer is checked against a reference answer before its time counts.
 - Each result names the Semurg release it was measured on.
