@@ -8,8 +8,8 @@
 set -euo pipefail
 BASE="https://one.semurg.io/dl"
 NAME="semurg-bench-runner"
-EXPECT="ff398b610b24cc730cf6075c94ec73abc3912b0748fe2201895577a720370ffa"
-VERSION="r11.141.20261030.eabb493"
+EXPECT="85fb5075b051ae9bf27c5f3f452521a972eba39ac4ff4cb5615d24c3ba384e1b"
+VERSION="r11.142.20261030.e037138"
 bold(){ printf '\033[1m%s\033[0m\n' "$*"; }
 die(){  printf '\n\033[31mThe Semurg benchmark did not start:\033[0m %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "run it as root:  curl -fsSL https://one.semurg.io/bench | sudo bash"
